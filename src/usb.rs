@@ -81,7 +81,7 @@ impl RtlSdrDeviceHandle {
         Ok(())
     }
 
-    pub fn set_if_freq(&mut self, freq: u32) {
+    pub fn set_if_freq(&self, freq: u32) {
         // Get corrected clock value - start with default
         let rtl_xtal: u32 = DEF_RTL_XTAL_FREQ;
         // Apply PPM correction
@@ -100,7 +100,7 @@ impl RtlSdrDeviceHandle {
         self.handle.claim_interface(iface);
     }
 
-    pub fn reset_demod(&mut self){
+    pub fn reset_demod(&self){
         self.demod_write_reg(1, 0x01, 0x14, 1);
         self.demod_write_reg(1, 0x01, 0x10, 1);
     }
@@ -114,20 +114,20 @@ impl RtlSdrDeviceHandle {
         }
     }
 
-    pub fn read_array(&mut self, block: u16, addr: u16, arr: &mut [u8], _len: u8) -> usize {
+    pub fn read_array(&self, block: u16, addr: u16, arr: &mut [u8], _len: u8) -> usize {
         let type_vendor_in = rusb::request_type(rusb::Direction::In, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let index: u16 = block << 8;
         self.handle.read_control(type_vendor_in, 0, addr, index, arr, CTRL_TIMEOUT).unwrap()
     }
     
-    pub fn write_array(&mut self, block: u16, addr: u16, arr: &[u8], len: usize) -> Result<usize> {
+    pub fn write_array(&self, block: u16, addr: u16, arr: &[u8], len: usize) -> Result<usize> {
         let type_vendor_out = 
             rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let index: u16 = (block << 8) | 0x10;
         self.handle.write_control(type_vendor_out, 0, addr, index, &arr[..len], CTRL_TIMEOUT)
     }
     
-    pub fn i2c_read_reg(&mut self, i2c_addr: u8, reg: u8) -> Result<u8> {
+    pub fn i2c_read_reg(&self, i2c_addr: u8, reg: u8) -> Result<u8> {
         let addr: u16 = i2c_addr.into();
         let reg: [u8; 1] = [reg];
         let mut data: [u8; 1] = [0];
@@ -145,7 +145,7 @@ impl RtlSdrDeviceHandle {
     
     // TODO: i2c_read
 
-    pub fn write_reg(&mut self, block: u16, addr: u16, val: u16, len: usize) -> usize {
+    pub fn write_reg(&self, block: u16, addr: u16, val: u16, len: usize) -> usize {
         let type_vendor_out = 
             rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let data: [u8; 2] = val.to_be_bytes();
@@ -166,7 +166,7 @@ impl RtlSdrDeviceHandle {
         }
     }
 
-    pub fn demod_read_reg(&mut self, page: u16, addr: u16) -> u16 {
+    pub fn demod_read_reg(&self, page: u16, addr: u16) -> u16 {
         let type_vendor_in = rusb::constants::LIBUSB_ENDPOINT_IN | rusb::constants::LIBUSB_REQUEST_TYPE_VENDOR;
             // rusb::request_type(rusb::Direction::In, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let mut data: [u8; 2] = [0, 0];
@@ -186,7 +186,7 @@ impl RtlSdrDeviceHandle {
         reg
     }
 
-    pub fn demod_write_reg(&mut self, page: u16, addr: u16, val: u16, len: usize) -> usize {
+    pub fn demod_write_reg(&self, page: u16, addr: u16, val: u16, len: usize) -> usize {
         let type_vendor_out = rusb::constants::LIBUSB_ENDPOINT_OUT | rusb::constants::LIBUSB_REQUEST_TYPE_VENDOR;
             // rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let index = 0x10 | page;

@@ -1,10 +1,9 @@
-use super::{Tuner, TunerInfo};
+use super::{Tuner, TunerInfo, TunerGainMode};
 use crate::usb::RtlSdrDeviceHandle;
 
 const R82XX_IF_FREQ: u32 = 3570000;
 pub struct R820T {
     pub tuner: TunerInfo,
-    // pub handle: &'a RtlSdrDeviceHandle,
 }
 
 pub const TUNER_ID: &str = "r820t";
@@ -30,7 +29,7 @@ impl R820T {
 }
     
 impl Tuner for R820T {
-    fn init(&self, handle: &mut RtlSdrDeviceHandle) {
+    fn init(&self, handle: &RtlSdrDeviceHandle) {
         // disable Zero-IF mode
         handle.demod_write_reg(1, 0xb1, 0x1a, 1);
 
@@ -43,5 +42,9 @@ impl Tuner for R820T {
 
         // enable spectrum inversion
         handle.demod_write_reg(1, 0x15, 0x01, 1);
+    }
+
+    fn set_gain_mode(&self, mode: TunerGainMode) {
+        
     }
 }
