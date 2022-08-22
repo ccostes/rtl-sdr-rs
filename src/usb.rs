@@ -141,9 +141,13 @@ impl RtlSdrDeviceHandle {
         }
     }
     
-    // TODO: i2c_write
+    pub fn i2c_write(&self, i2c_addr: u16, buffer: &[u8]) {
+        self.write_array(BLOCK_IIC, i2c_addr, buffer, buffer.len());
+    }
     
-    // TODO: i2c_read
+    pub fn i2c_read(&self, i2c_addr: u16, buffer: &mut[u8], len: u8) {
+        self.read_array(BLOCK_IIC, i2c_addr, buffer, len);
+    }
 
     pub fn write_reg(&self, block: u16, addr: u16, val: u16, len: usize) -> usize {
         let type_vendor_out = 

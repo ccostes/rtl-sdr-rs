@@ -25,6 +25,9 @@ pub enum TunerGainMode {
 pub struct RtlSdr {
     handle: RtlSdrDeviceHandle,
     tuner: Tuners,
+    direct_sampling: bool,
+    xtal: u32,
+    ppm_correction: u32,
 }
 
 impl RtlSdr {
@@ -35,11 +38,49 @@ impl RtlSdr {
         let mut device_handle = RtlSdrDeviceHandle::new(handle);
         device_handle.print_device_info();
         let tuner = {RtlSdr::init(&mut device_handle)};
-        RtlSdr { handle: device_handle, tuner: tuner }
+        RtlSdr { 
+            handle: device_handle,
+            tuner: tuner,
+            ppm_correction: 0,
+            xtal: 0,
+            direct_sampling: false,
+        }
     }
 
-    pub fn set_tuner_gain_mode(&self, mode: TunerGainMode){
-        self.tuner.set_gain_mode(mode);
+    pub fn set_tuner_gain_mode(&mut self, mode: TunerGainMode){
+        set_i2c_repeater(&self.handle, true);
+        self.tuner.set_gain_mode(&mut self.handle, mode);
+        set_i2c_repeater(&self.handle, false);
+    }
+
+    // TODO: set_bias_tee
+
+    pub fn reset_buffer(&self) {
+        self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_CTL, 0x1002, 2);
+        self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_CTL, 0x0000, 2);
+    }
+
+    pub fn set_if_freq(&self, freq: u32) {
+        // Read corrected clock value
+        let xtal = self.get_xtal_freq();
+        let if_freq = (2_u32.pow(freq) / xtal) as i32 * -1;
+        self.handle.demod_write_reg(1, 0x19, ((if_freq >> 16) & 0x3f) as u16, 1);
+        self.handle.demod_write_reg(1, 0x1a, ((if_freq >> 8) & 0xff) as u16, 1);
+        self.handle.demod_write_reg(1, 0x1b, (if_freq & 0xff) as u16, 1);
+    }
+
+    pub fn set_center_freq(&self, freq: u32) {
+        if self.direct_sampling {
+            self.set_if_freq(freq);
+        } else {
+            set_i2c_repeater(&self.handle, true);
+
+            set_i2c_repeater(&self.handle, false);            
+        }
+    }
+
+    pub fn get_xtal_freq(&self) -> u32 {
+        (self.xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
     }
 
     fn init(handle: &mut RtlSdrDeviceHandle) -> Tuners {
