@@ -9,6 +9,16 @@ const NUM_REGS: usize = 30;
 const REG_SHADOW_START: usize = 5;
 const MAX_I2C_MSG_LEN: usize = 8;
 
+const REG_INIT: [u8; 27] = [
+	0x83, 0x32, 0x75,			    /* 05 to 07 */
+	0xc0, 0x40, 0xd6, 0x6c,			/* 08 to 0b */
+	0xf5, 0x63, 0x75, 0x68,			/* 0c to 0f */
+	0x6c, 0x83, 0x80, 0x00,			/* 10 to 13 */
+	0x0f, 0x00, 0xc0, 0x30,			/* 14 to 17 */
+	0x48, 0xcc, 0x60, 0x00,			/* 18 to 1b */
+	0x54, 0xae, 0x4a, 0xc0			/* 1c to 1f */
+];
+
 struct FreqRange {
     freq: u32,          // Start freq, in MHz
     open_d: u8,         // low
@@ -247,7 +257,7 @@ impl R820T {
     pub fn new(handle: &mut RtlSdrDeviceHandle) -> R820T {
         let tuner = R820T { 
             tuner: TUNER_INFO, 
-            regs: Vec::with_capacity(NUM_REGS),
+            regs: vec![0; NUM_REGS],
             freq: 0,
             int_freq: 0,
             xtal_cap_sel: Xtal_Cap_Value::XTAL_LOW_CAP_30P,
@@ -283,6 +293,83 @@ impl Tuner for R820T {
         let lo_freq = freq + self.int_freq;
         self.set_mux(handle, lo_freq);
         self.set_pll(handle, lo_freq);
+
+        // TODO: Some extra stuff for the 828D tuner when we support that
+    }
+
+    fn set_bandwidth(&mut self, handle: &RtlSdrDeviceHandle, bw_in: u32, rate: u32) {
+        let mut bw: i32 = bw_in as i32;
+        const FILT_HP_BW1: i32 = 350_000;
+        const FILT_HP_BW2: i32 = 380_000;
+        const r82xx_if_low_pass_bw_table: [i32;10] = [
+            1_700_000, 
+            1_600_000, 
+            1_550_000, 
+            1_450_000, 
+            1_200_000, 
+            900_000, 
+            700_000, 
+            550_000, 
+            450_000, 
+            350_000
+        ];
+
+        let (reg_0a, reg_0b): (u8, u8) = 
+            if bw > 7_000_000 {
+                // BW: 8MHz
+                self.int_freq = 4_570_000;
+                (0x10, 0x0b)
+            } else if bw > 6_000_000 {
+                // BW: 7MHz
+                self.int_freq = 4_570_000;
+                (0x10, 0x2a)
+            } else if bw > r82xx_if_low_pass_bw_table[0] + FILT_HP_BW1 + FILT_HP_BW2 {
+                // BW: 6MHz
+                self.int_freq = 3_570_000;
+                (0x10, 0x6b)
+            } else {
+                self.int_freq = 2_300_000;
+                let (mut reg_0a, mut reg_0b): (u8, u8) = (0x00, 0x80);
+                let mut real_bw = 0;
+
+                if bw > r82xx_if_low_pass_bw_table[0] + FILT_HP_BW1 {
+                    bw -= FILT_HP_BW2;
+                    self.int_freq += FILT_HP_BW2 as u32;
+                    real_bw += FILT_HP_BW2;
+                } else {
+                    reg_0b |= 0x20;
+                }
+
+                if bw > r82xx_if_low_pass_bw_table[0] {
+                    bw -= FILT_HP_BW1;
+                    self.int_freq += FILT_HP_BW1 as u32;
+                    real_bw += FILT_HP_BW1;
+                } else {
+                    reg_0b |= 0x40;
+                }
+
+                // Find low-pass filter
+                let mut lp_idx = 0;
+                // Want the element before the first that is lower than bw
+                for (i, freq) in r82xx_if_low_pass_bw_table.iter().enumerate() {
+                    if bw > *freq {
+                        break;
+                    }
+                    lp_idx = i;
+                };
+                reg_0b |= 15 - lp_idx as u8;
+                real_bw += r82xx_if_low_pass_bw_table[lp_idx];
+
+                self.int_freq -= (real_bw / 2) as u32;
+                (reg_0a, reg_0b)
+            };
+
+        self.write_reg_mask(handle, 0x0a, reg_0a, 0x10);
+        self.write_reg_mask(handle, 0x0b, reg_0b, 0xef);
+    }
+    
+    fn get_if_freq(&self) -> u32 {
+        self.int_freq
     }
 }
 

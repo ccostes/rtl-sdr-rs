@@ -149,6 +149,15 @@ impl RtlSdrDeviceHandle {
         self.read_array(BLOCK_IIC, i2c_addr, buffer, len);
     }
 
+    pub fn read_reg(&self, block: u16, addr: u16, len: usize) -> u16 {
+        let type_vendor_out = 
+            rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
+        let mut data: [u8;2] = [0,0];
+        let index: u16 = block << 8;
+        self.handle.read_control(type_vendor_out, 0, addr, index, &mut data[..len], CTRL_TIMEOUT);
+        BigEndian::read_u16(&data)
+    }
+
     pub fn write_reg(&self, block: u16, addr: u16, val: u16, len: usize) -> usize {
         let type_vendor_out = 
             rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
