@@ -26,7 +26,7 @@ pub enum TunerGainMode {
 
 pub struct RtlSdr {
     handle: RtlSdrDeviceHandle,
-    tuner: Tuners,
+    tuner: Box<dyn Tuner>,
     freq: u32,                  // Hz
     rate: u32,                  // Hz
     bw: u32,
@@ -47,7 +47,7 @@ impl RtlSdr {
         
         let mut sdr = RtlSdr { 
             handle: RtlSdrDeviceHandle::new(handle),
-            tuner: Tuners::UNKNOWN,
+            tuner: Box::new(NoTuner{}),
             freq: 0,
             rate: 0,
             bw: 0,
@@ -129,13 +129,10 @@ impl RtlSdr {
         } else {
             self.rate
         };
-        match self.tuner {
-            Tuners::R820T(_) => {
-                self.tuner.set_bandwidth(&self.handle, val, self.rate);
-                self.set_if_freq(self.tuner.get_if_freq());
-                self.set_center_freq(self.freq);
-            },
-            Tuners::UNKNOWN => {},
+        self.tuner.set_bandwidth(&self.handle, val, self.rate);
+        if self.tuner.get_info().id == r820t::TUNER_ID {
+            self.set_if_freq(self.tuner.get_if_freq());
+            self.set_center_freq(self.freq);
         }
         self.set_i2c_repeater(false);
 
@@ -193,7 +190,7 @@ impl RtlSdr {
                 }
             };
             match tuner_id {
-                R820T_TUNER_ID => Tuners::R820T(r820t::R820T::new(&mut self.handle)),
+                r820t::TUNER_ID => Box::new(r820t::R820T::new(&mut self.handle)),
                 _ => panic!("Unable to find recognized tuner"),
             }
         };    

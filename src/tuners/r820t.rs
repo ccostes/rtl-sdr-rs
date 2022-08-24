@@ -230,7 +230,7 @@ enum Xtal_Cap_Value {
 }
 
 pub struct R820T {
-    pub tuner: TunerInfo,
+    pub info: TunerInfo,
     regs: Vec<u8>,
     pub freq: u32,
     int_freq: u32,
@@ -256,7 +256,7 @@ pub const TUNER_INFO: TunerInfo = TunerInfo {
 impl R820T {
     pub fn new(handle: &mut RtlSdrDeviceHandle) -> R820T {
         let tuner = R820T { 
-            tuner: TUNER_INFO, 
+            info: TUNER_INFO, 
             regs: vec![0; NUM_REGS],
             freq: 0,
             int_freq: 0,
@@ -283,6 +283,10 @@ impl Tuner for R820T {
 
         // enable spectrum inversion
         handle.demod_write_reg(1, 0x15, 0x01, 1);
+    }
+
+    fn get_info(&self) -> TunerInfo {
+        self.info
     }
 
     fn set_gain_mode(&mut self, handle: &RtlSdrDeviceHandle, mode: TunerGainMode) {
