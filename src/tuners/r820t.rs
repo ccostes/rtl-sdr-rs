@@ -1,9 +1,9 @@
-use super::{Tuner, TunerInfo, TunerGainMode};
+use super::{Tuner, TunerInfo, TunerGain};
 use crate::usb::RtlSdrDeviceHandle;
 
 const R820T_I2C_ADDR: u16 = 0x34;
 // const R828D_I2C_ADDR: u8 = 0x74; for now only support the T
-
+const VER_NUM: u8 = 49;
 const R82XX_IF_FREQ: u32 = 3570000;
 const NUM_REGS: usize = 30;
 const REG_SHADOW_START: usize = 5;
@@ -17,6 +17,23 @@ const REG_INIT: [u8; 27] = [
 	0x0f, 0x00, 0xc0, 0x30,			/* 14 to 17 */
 	0x48, 0xcc, 0x60, 0x00,			/* 18 to 1b */
 	0x54, 0xae, 0x4a, 0xc0			/* 1c to 1f */
+];
+
+/* measured with a Racal 6103E GSM test set at 928 MHz with -60 dBm
+* input power, for raw results see:
+* http://steve-m.de/projects/rtl-sdr/gain_measurement/r820t/
+*/
+const VGA_BASE_GAIN: i32 = -47;
+const r82xx_vga_gain_steps: [i32; 16]  = [
+    0, 26, 26, 30, 42, 35, 24, 13, 14, 32, 36, 34, 35, 37, 35, 36
+];
+
+const r82xx_lna_gain_steps: [i32; 16]  = [
+    0, 9, 13, 40, 38, 13, 31, 22, 26, 31, 26, 14, 19, 5, 35, 13
+];
+
+const r82xx_mixer_gain_steps: [i32; 16]  = [
+    0, 5, 10, 10, 19, 9, 10, 25, 17, 10, 8, 16, 13, 6, 3, -8
 ];
 
 struct FreqRange {
@@ -221,7 +238,14 @@ const FREQ_RANGES: [FreqRange; 21] = [
     },
 ];
 
-enum Xtal_Cap_Value {
+enum TunerType {
+    TUNER_RADIO,
+    TUNER_ANALOG_TV,
+    TUNER_DIGITAL_TV,
+}
+
+#[derive(Debug)]
+enum XtalCapValue {
 	XTAL_LOW_CAP_30P,
 	XTAL_LOW_CAP_20P,
 	XTAL_LOW_CAP_10P,
@@ -229,14 +253,32 @@ enum Xtal_Cap_Value {
 	XTAL_HIGH_CAP_0P,    
 }
 
+const XTAL_CAPACITOR_VALUES: [u8; 5] = [
+    0x0b, // XTAL_LOW_CAP_30P
+    0x02, // XTAL_LOW_CAP_20P
+    0x01, // XTAL_LOW_CAP_10P
+    0x00, // XTAL_LOW_CAP_0P 
+    0x10, // XTAL_HIGH_CAP_0P
+];
+
+enum DeliverySystem {
+	SYS_UNDEFINED,
+	SYS_DVBT,
+	SYS_DVBT2,
+	SYS_ISDBT,
+}
+#[derive(Debug)]
 pub struct R820T {
     pub info: TunerInfo,
     regs: Vec<u8>,
     pub freq: u32,
     int_freq: u32,
-    xtal_cap_sel: Xtal_Cap_Value,
+    xtal_cap_sel: XtalCapValue,
     xtal: u32,
+    use_predetect: bool,
     has_lock: bool,
+    fil_cal_code: u8,
+    init_done: bool,
 }
 
 pub const TUNER_ID: &str = "r820t";
@@ -260,9 +302,12 @@ impl R820T {
             regs: vec![0; NUM_REGS],
             freq: 0,
             int_freq: 0,
-            xtal_cap_sel: Xtal_Cap_Value::XTAL_LOW_CAP_30P,
+            xtal_cap_sel: XtalCapValue::XTAL_LOW_CAP_30P,
             xtal: 0,
             has_lock: false,
+            init_done: false,
+            use_predetect: false,
+            fil_cal_code: 0,
         };
         tuner.init(handle);
         tuner
@@ -289,8 +334,68 @@ impl Tuner for R820T {
         self.info
     }
 
-    fn set_gain_mode(&mut self, handle: &RtlSdrDeviceHandle, mode: TunerGainMode) {
-        self.set_gain(handle, mode, 0);
+    fn read_gain(&self, handle: &RtlSdrDeviceHandle) -> i32 {
+        let mut data: [u8; 4] = [0;4];
+        self.read_reg(handle, 0x00, &mut data, 4);
+        let gain = ((data[3] & 0x0f) << 1) + ((data[3] & 0xf0) >> 4);
+        gain as i32
+    }
+
+    fn set_gain(&mut self, handle: &RtlSdrDeviceHandle, mode: TunerGain) {
+        match mode {
+            TunerGain::AUTO => {
+                // LNA
+                self.write_reg_mask(handle, 0x05, 0, 0x10);
+                // Mixer
+                self.write_reg_mask(handle, 0x07, 0x10, 0x10);
+                // Set fixed VGA gain for now (26.5 dB)
+                self.write_reg_mask(handle, 0x0c, 0x0b, 0x9f);
+            },
+            TunerGain::MANUAL(gain) => {
+                let mut data: [u8;4] = [0;4];
+                // LNA auto off
+                self.write_reg_mask(handle, 0x05, 0x10, 0x10);
+                // Mixer auto off
+                self.write_reg_mask(handle, 0x07, 0, 0x10);
+
+                self.read_reg(handle, 0x00, &mut data, 4);
+
+                // Set fixed VGA gain for now (16.3 dB)
+                self.write_reg_mask(handle, 0x0c, 0x08, 0x9f); //init val 0x08 0x0c works well at 1.7
+
+                let mut total_gain: i32 = 0;
+                let mut mix_index: u8 = 0;
+                let mut lna_index: u8 = 0;
+                for _ in 0..15 {
+                    if total_gain >= gain {
+                        break;
+                    }
+                    lna_index += 1;
+                    total_gain += r82xx_lna_gain_steps[lna_index as usize];
+
+                    if total_gain >= gain {
+                        break;
+                    }
+
+                    mix_index += 1;
+                    total_gain += r82xx_mixer_gain_steps[mix_index as usize];
+                }
+                // Set LNA gain
+                self.write_reg_mask(handle, 0x05, lna_index, 0x0f);
+
+                // Set mixer gain
+                self.write_reg_mask(handle, 0x07, mix_index, 0x0f);
+
+                // LNA
+                self.write_reg_mask(handle, 0x05, 0, 0x10);
+
+                // Mixer
+                self.write_reg_mask(handle, 0x07, 0x10, 0x10);
+
+                // Set fixed VGA gain for now (26.5dB)
+                self.write_reg_mask(handle, 0x0c, 0x0b, 0x9f);
+            }
+        }
     }
 
     fn set_freq(&mut self, handle: &RtlSdrDeviceHandle, freq: u32) {
@@ -375,26 +480,21 @@ impl Tuner for R820T {
     fn get_if_freq(&self) -> u32 {
         self.int_freq
     }
+
+    fn get_xtal_freq(&self) -> u32 {
+        self.xtal
+    }
+
+    fn set_xtal_freq(&mut self, freq: u32) {
+        self.xtal = freq;
+    }
+
+    fn exit(&self, handle: &RtlSdrDeviceHandle) {
+        
+    }
 }
 
 impl R820T {
-
-    fn set_gain(&mut self, handle: &RtlSdrDeviceHandle, mode: TunerGainMode, gain: i32) {
-        match mode {
-            TunerGainMode::AUTO => {
-                // LNA
-                self.write_reg_mask(handle, 0x05, 0, 0x10);
-                // Mixer
-                self.write_reg_mask(handle, 0x07, 0x10, 0x10);
-                // Set fixed VGA gain for now (26.5 dB)
-                self.write_reg_mask(handle, 0x0c, 0x0b, 0x9f);
-            },
-            TunerGainMode::MANUAL(gain) => {
-                // TODO: set manual gain
-            }
-        }
-    }
-
     // Tuning logic
 
     fn set_mux(&mut self, handle: &RtlSdrDeviceHandle, freq: u32) {
@@ -425,16 +525,16 @@ impl R820T {
 
         // XTAL CAP & Drive
         let val = match self.xtal_cap_sel {
-            Xtal_Cap_Value::XTAL_LOW_CAP_30P | Xtal_Cap_Value::XTAL_LOW_CAP_20P => {
+            XtalCapValue::XTAL_LOW_CAP_30P | XtalCapValue::XTAL_LOW_CAP_20P => {
                 range.xtal_cap20p | 0x08
             },
-            Xtal_Cap_Value::XTAL_LOW_CAP_10P => {
+            XtalCapValue::XTAL_LOW_CAP_10P => {
                 range.xtal_cap10p | 0x08
             },
-            Xtal_Cap_Value::XTAL_HIGH_CAP_0P => {
+            XtalCapValue::XTAL_HIGH_CAP_0P => {
                 range.xtal_cap0p | 0x00
             },
-            Xtal_Cap_Value::XTAL_LOW_CAP_0P | _ => {
+            XtalCapValue::XTAL_LOW_CAP_0P | _ => {
                 range.xtal_cap0p | 0x08
             }
         };
@@ -468,7 +568,8 @@ impl R820T {
         let mut div_buf: u8 = 0;
         let mut div_num: u8 = 0;
         while mix_div <= 64 {
-            if ((freq_khz * mix_div as u32) >= vco_min) && ((freq_khz * mix_div as u32) < vco_max) {
+            if ((freq_khz * mix_div as u32) >= vco_min) && 
+                ((freq_khz * mix_div as u32) < vco_max) {
                 div_buf = mix_div;
                 while div_buf > 2 {
                     div_buf = div_buf >> 1;
@@ -493,7 +594,9 @@ impl R820T {
 
         let vco_freq = freq as u64 * mix_div as u64;
         let nint = (vco_freq / (2 * pll_ref as u64)) as u8;
-        let mut vco_fra = ((vco_freq - 2 * pll_ref as u64 * nint as u64) / 1000) as u32; // VCO contribution by SDM (kHz)
+        // VCO contribution by SDM (kHz)
+        let mut vco_fra = ((vco_freq - 2 * pll_ref as u64 * nint as u64) / 1000) as u32; 
+
         if nint > ((128 / vco_power_ref) - 1) {
             println!("[R82xx] No valid PLL values for {} Hz!", freq);
             // TODO: Err here
@@ -545,6 +648,303 @@ impl R820T {
         // Set PLL auto-tune = 8kHz
         self.write_reg_mask(handle, 0x1a, 0x08, 0x08);
     }
+
+    fn sysfreq_sel(&mut self, handle: &RtlSdrDeviceHandle, freq: u32, tuner_type: TunerType, delivery_system: DeliverySystem){
+        let mut mixer_top;
+        let mut lna_top;
+        let mut cp_cur;
+        let mut div_buf_cur;
+        let mut lna_vth_l;
+        let mut mixer_vth_l;
+        let mut air_cable1_in;
+        let mut cable2_in;
+        let mut pre_dect;
+        let mut lna_discharge;
+        let mut filter_cur;
+
+        match delivery_system {
+            DeliverySystem::SYS_DVBT => {
+                if ((freq == 506000000) || (freq == 666000000) ||
+                (freq == 818000000)) {
+                    mixer_top = 0x14;	/* mixer top:14 , top-1, low-discharge */
+                    lna_top = 0xe5;		/* detect bw 3, lna top:4, predet top:2 */
+                    cp_cur = 0x28;		/* 101, 0.2 */
+                    div_buf_cur = 0x20;	/* 10, 200u */
+                } else {
+                    mixer_top = 0x24;	/* mixer top:13 , top-1, low-discharge */
+                    lna_top = 0xe5;		/* detect bw 3, lna top:4, predet top:2 */
+                    cp_cur = 0x38;		/* 111, auto */
+                    div_buf_cur = 0x30;	/* 11, 150u */
+                }
+                lna_vth_l = 0x53;		/* lna vth 0.84	,  vtl 0.64 */
+                mixer_vth_l = 0x75;		/* mixer vth 1.04, vtl 0.84 */
+                air_cable1_in = 0x00;
+                cable2_in = 0x00;
+                pre_dect = 0x40;
+                lna_discharge = 14;
+                filter_cur = 0x40;		/* 10, low */
+            },
+            DeliverySystem::SYS_DVBT2 => {
+                mixer_top = 0x24;	/* mixer top:13 , top-1, low-discharge */
+                lna_top = 0xe5;		/* detect bw 3, lna top:4, predet top:2 */
+                lna_vth_l = 0x53;	/* lna vth 0.84	,  vtl 0.64 */
+                mixer_vth_l = 0x75;	/* mixer vth 1.04, vtl 0.84 */
+                air_cable1_in = 0x00;
+                cable2_in = 0x00;
+                pre_dect = 0x40;
+                lna_discharge = 14;
+                cp_cur = 0x38;		/* 111, auto */
+                div_buf_cur = 0x30;	/* 11, 150u */
+                filter_cur = 0x40;	/* 10, low */
+            },
+            DeliverySystem::SYS_ISDBT => {
+                mixer_top = 0x24;	/* mixer top:13 , top-1, low-discharge */
+                lna_top = 0xe5;		/* detect bw 3, lna top:4, predet top:2 */
+                lna_vth_l = 0x75;	/* lna vth 1.04	,  vtl 0.84 */
+                mixer_vth_l = 0x75;	/* mixer vth 1.04, vtl 0.84 */
+                air_cable1_in = 0x00;
+                cable2_in = 0x00;
+                pre_dect = 0x40;
+                lna_discharge = 14;
+                cp_cur = 0x38;		/* 111, auto */
+                div_buf_cur = 0x30;	/* 11, 150u */
+                filter_cur = 0x40;	/* 10, low */},
+            DeliverySystem::SYS_UNDEFINED => {  // DVB-T 8M
+                mixer_top = 0x24;	/* mixer top:13 , top-1, low-discharge */
+                lna_top = 0xe5;		/* detect bw 3, lna top:4, predet top:2 */
+                lna_vth_l = 0x53;	/* lna vth 0.84	,  vtl 0.64 */
+                mixer_vth_l = 0x75;	/* mixer vth 1.04, vtl 0.84 */
+                air_cable1_in = 0x00;
+                cable2_in = 0x00;
+                pre_dect = 0x40;
+                lna_discharge = 14;
+                cp_cur = 0x38;		/* 111, auto */
+                div_buf_cur = 0x30;	/* 11, 150u */
+                filter_cur = 0x40;	/* 10, low */},
+        }
+        if self.use_predetect {
+            self.write_reg_mask(handle, 0x06, pre_dect, 0x40);
+        }
+        self.write_reg_mask(handle, 0x1d, lna_top, 0xc7);
+        self.write_reg_mask(handle, 0x1c, mixer_top, 0xf8);
+        self.write_regs(handle, 0x0d, &[lna_vth_l]);
+        self.write_regs(handle, 0x0e, &[mixer_vth_l]);
+
+        // Air-IN only for Astrometa
+        self.write_reg_mask(handle, 0x05, air_cable1_in, 0x60);
+        self.write_reg_mask(handle, 0x06, cable2_in, 0x08);
+        self.write_reg_mask(handle, 0x11, cp_cur, 0x38);
+        
+        // RTLSDRBLOG. Improve L-band performance by setting PLL drop out to 2.0v
+        div_buf_cur = 0xa0;
+        self.write_reg_mask(handle, 0x17, div_buf_cur, 0x30);
+        self.write_reg_mask(handle, 0x0a, filter_cur, 0x60);
+
+        // Set LNA
+        if !matches!(tuner_type, TunerType::TUNER_ANALOG_TV) {
+            // LNA TOP: lowest
+            self.write_reg_mask(handle, 0x1d, 0, 0x38);
+            // 0: normal mode
+            self.write_reg_mask(handle, 0x1c, 0, 0x04);
+            // 0: PRE_DECT off
+            self.write_reg_mask(handle, 0x06, 0, 0x40);
+            // agc clk 250hz
+            self.write_reg_mask(handle, 0x1a, 0x30, 0x30);
+            
+            // write LNA TOP = 3
+            self.write_reg_mask(handle, 0x1d, 0x18, 0x38);
+
+            /*
+            * write discharge mode
+            * FIXME: IMHO, the mask here is wrong, but it matches
+            * what's there at the original driver
+            */
+            self.write_reg_mask(handle, 0x1c, mixer_top, 0x04);
+            // LNA discharge current
+            self.write_reg_mask(handle, 0x1e, lna_discharge, 0x1f);
+            // agc clk 60hz
+            self.write_reg_mask(handle, 0x1a, 0x20, 0x30);
+        } else {
+            // PRE_DECT off
+            self.write_reg_mask(handle, 0x06, 0, 0x40);
+            // write LNA TOP
+            self.write_reg_mask(handle, 0x1d, lna_top, 0x38);
+
+            /*
+            * write discharge mode
+            * FIXME: IMHO, the mask here is wrong, but it matches
+            * what's there at the original driver
+            */
+            self.write_reg_mask(handle, 0x1c, mixer_top, 0x04);
+            // LNA discharge current
+            self.write_reg_mask(handle, 0x1e, lna_discharge, 0x1f);
+            // agc clk 1Khz, external det1 cap 1u
+            self.write_reg_mask(handle, 0x1a, 0x00, 0x30);   
+        }
+        self.write_reg_mask(handle, 0x10, lna_discharge, 0x04);
+    }
+
+    fn set_tv_standard(&mut self, handle: &RtlSdrDeviceHandle, bw: u32, tuner_type: TunerType) {
+
+        /* BW < 6 MHz */
+        let if_khz = 3570;
+        let filt_cal_lo = 56000;	/* 52000->56000 */
+        let filt_gain = 0x10;	/* +3db, 6mhz on */
+        let img_r = 0x00;		/* image negative */
+        let filt_q = 0x10;		/* r10[4]:low q(1'b1) */
+        let hp_cor = 0x6b;		/* 1.7m disable, +2cap, 1.0mhz */
+        let ext_enable = 0x60;	/* r30[6]=1 ext enable; r30[5]:1 ext at lna max-1 */
+        let loop_through = 0x01;	/* r5[7], lt off */
+        let lt_att = 0x00;		/* r31[7], lt att enable */
+        let flt_ext_widest = 0x00;	/* r15[7]: flt_ext_wide off */
+        let polyfil_cur = 0x60;	/* r25[6:5]:min */
+
+        // Initialize shadow registers
+        self.regs = REG_INIT.to_vec();
+
+        // Init Flag & Xtal_check Result (inits VGA gain, needed?)
+        self.write_reg_mask(handle, 0x0c, 0x00, 0x0f);
+
+        // Version
+        self.write_reg_mask(handle, 0x13, VER_NUM, 0x3f);
+
+        // for LT Gain test
+        if !matches!(tuner_type, TunerType::TUNER_ANALOG_TV) {
+            self.write_reg_mask(handle, 0x1d, 0x00, 0x38);
+        }
+        self.int_freq = if_khz * 1000;
+
+        /* Check if standard changed. If so, filter calibration is needed */
+        /* Since we call this function only once in rtlsdr, force calibration */
+        let need_calibration = true;
+        if need_calibration {
+            for _ in 0..2 {
+                // Set filt_cap
+                self.write_reg_mask(handle, 0x0b, hp_cor, 0x60);
+                // set cali clk = on
+                self.write_reg_mask(handle, 0x0f, 0x04, 0x04);
+                // X'tal cap 0pF for PLL
+                self.write_reg_mask(handle, 0x10, 0x00, 0x03);
+
+                self.set_pll(handle, filt_cal_lo * 1000);
+
+                // Start trigger
+                self.write_reg_mask(handle, 0x0b, 0x10, 0x10);
+                // Stop trigger
+                self.write_reg_mask(handle, 0x0b, 0x00, 0x04);
+
+                // Check if calibration worked
+                let mut data: [u8;5] = [0;5];
+                self.read_reg(handle, 0x00, &mut data, 5);
+                self.fil_cal_code = data[4] & 0x0f;
+                if self.fil_cal_code & self.fil_cal_code != 0x0f {
+                    break;
+                }
+                // Narrowest
+                if self.fil_cal_code == 0x0f {
+                    self.fil_cal_code = 0;
+                }
+            }
+        }
+        self.write_reg_mask(handle, 0x0a, 
+            filt_q | self.fil_cal_code, 0x1f);
+
+        // Set BW, Filter_gain, and HP corner
+        self.write_reg_mask(handle, 0x0b, hp_cor, 0xef);
+
+        // Set Img_R
+        self.write_reg_mask(handle, 0x07, img_r, 0x80);
+
+        // Set filt_3dB, V6MHz
+        self.write_reg_mask(handle, 0x06, filt_gain, 0x30);
+
+        // Channel filter extension
+        self.write_reg_mask(handle, 0x1e, ext_enable, 0x60);
+
+        // Loop through
+        self.write_reg_mask(handle, 0x05, loop_through, 0x80);
+
+        // Loop through attenuation
+        self.write_reg_mask(handle, 0x1f, lt_att, 0x80);
+
+        // Filter extension widest
+        self.write_reg_mask(handle, 0x0f, flt_ext_widest, 0x80);
+
+        // RF poly filter current
+        self.write_reg_mask(handle, 0x19, polyfil_cur, 0x60);
+
+        // Original driver stores delivery sys and tuner type, but never uses it again
+    }
+
+    // r82xx_standby
+    fn exit(&mut self, handle: &RtlSdrDeviceHandle) {
+        // If device was not initialized yet don't need to standby
+        if !self.init_done {
+            return ;
+        }
+        self.write_regs(handle, 0x06, &[0xb1]);
+        self.write_regs(handle, 0x05, &[0xa0]);
+        self.write_regs(handle, 0x07, &[0x3a]);
+        self.write_regs(handle, 0x08, &[0x40]);
+        self.write_regs(handle, 0x09, &[0xc0]);
+        self.write_regs(handle, 0x0a, &[0x36]);
+        self.write_regs(handle, 0x0c, &[0x35]);
+        self.write_regs(handle, 0x0f, &[0x68]);
+        self.write_regs(handle, 0x11, &[0x03]);
+        self.write_regs(handle, 0x17, &[0xf4]);
+        self.write_regs(handle, 0x19, &[0x0c]);
+    }
+
+    fn xtal_check(&mut self, handle: &RtlSdrDeviceHandle) -> u8 {
+        let mut data: [u8;3] = [0;3];
+        
+        // Initialize the shadow registers
+        self.regs = REG_INIT.to_vec();
+
+        // cap 30pF & Drive Low
+        self.write_reg_mask(handle, 0x10, 0x0b, 0x0b);
+        // set pll autotune = 128kHz
+        self.write_reg_mask(handle, 0x1a, 0x00, 0x0c);
+        // set manual initial reg = 111111; 
+        self.write_reg_mask(handle, 0x13, 0x7f, 0x7f);
+        // set auto
+        self.write_reg_mask(handle, 0x13, 0x00, 0x40);
+
+        // Try several xtal capacitor alternatives
+        for cap_val in XTAL_CAPACITOR_VALUES.iter() {
+            self.write_reg_mask(handle, 0x10, *cap_val, 0x1b);
+            self.read_reg(handle, 0x00, &mut data, 3);
+            if data[2] & 0x40 == 0 {
+                continue;
+            }
+
+            let val = data[2] & 0x3f;
+            if (self.xtal == 16_000_000 && (val > 29 || val < 23)) ||
+                val != 0x3f {
+                return *cap_val
+            }
+        }
+        // TODO: error
+        0
+    }
+
+    // Combined from r820t_init and r82xx_init
+    fn init(&mut self, handle: &RtlSdrDeviceHandle) {
+        // TODO: set different I2C address and rafael_chip for R828D
+
+        self.get_xtal_freq();
+        self.use_predetect = false;
+
+        // <original>TODO: R828D might need r82xx_xtal_check()
+        self.xtal_cap_sel = XtalCapValue::XTAL_HIGH_CAP_0P;
+
+        // Initialize registers
+        self.write_regs(handle, 0x05, &REG_INIT);
+
+        self.set_tv_standard(handle, 3, TunerType::TUNER_DIGITAL_TV);
+        self.sysfreq_sel(handle, 0, TunerType::TUNER_DIGITAL_TV, DeliverySystem::SYS_DVBT);
+        self.init_done = true;
+    }
     
     /// Write register with bit-masked data
     fn write_reg_mask(&mut self, handle: &RtlSdrDeviceHandle, reg: usize, val: u8, bit_mask: u8) {
@@ -562,7 +962,7 @@ impl R820T {
         self.regs[index]
     }
     
-    /// Write data to device regiers
+    /// Write data to device registers (r82xx_write)
     fn write_regs(&mut self, handle: &RtlSdrDeviceHandle, reg: usize, val: &[u8]) {
         // Store write in local cache
         self.shadow_store(reg, val);
@@ -584,6 +984,7 @@ impl R820T {
         }
     }
 
+    // (r82xx_read)
     fn read_reg(&self, handle: &RtlSdrDeviceHandle, reg: usize, buf: &mut[u8], len: u8) {
         assert!(buf.len() >= len as usize);
         handle.i2c_write(R820T_I2C_ADDR, &[reg as u8]);

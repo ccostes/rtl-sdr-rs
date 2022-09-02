@@ -6,11 +6,13 @@ use usb::RtlSdrDeviceHandle;
 mod tuners;
 use tuners::*;
 
-pub (crate) const DEF_RTL_XTAL_FREQ: u32 = 28800000; // should this be here?
-
 const VID: u16 = 0x0bda;
 const PID: u16 = 0x2838;
 const INTERFACE_ID: u8 = 0;
+
+const DEF_RTL_XTAL_FREQ: u32 =	28_800_000;
+const MIN_RTL_XTAL_FREQ: u32 =	(DEF_RTL_XTAL_FREQ - 1000);
+const MAX_RTL_XTAL_FREQ: u32 =	(DEF_RTL_XTAL_FREQ + 1000);
 
 pub (crate) const FIR_LEN: usize = 16;
 const DEFAULT_FIR: &'static [i32; FIR_LEN] = &[
@@ -19,23 +21,33 @@ const DEFAULT_FIR: &'static [i32; FIR_LEN] = &[
 ];
 
 
-pub enum TunerGainMode {
+pub enum TunerGain {
     AUTO,
-    MANUAL(u32),
+    MANUAL(i32),
 }
 
+#[derive(Debug)]
+pub enum DirectSampleMode {
+    OFF,
+    ON,
+    ON_SWAP,    // Swap I and Q ADC, allowing to select between two inputs
+}
+
+#[derive(Debug)]
 pub struct RtlSdr {
     handle: RtlSdrDeviceHandle,
     tuner: Box<dyn Tuner>,
     freq: u32,                  // Hz
     rate: u32,                  // Hz
     bw: u32,
-    direct_sampling: bool,
+    direct_sampling: DirectSampleMode,
     xtal: u32,
+    tuner_xtal: u32,
     ppm_correction: u32,
     offset_freq: u32,
     corr: i32,                   // PPM
     force_bt: bool,
+    force_ds: bool,
     fir: [i32; FIR_LEN],
 }
 
@@ -53,19 +65,22 @@ impl RtlSdr {
             bw: 0,
             ppm_correction: 0,
             xtal: 0,
-            direct_sampling: false,
+            tuner_xtal: 0,
+            direct_sampling: DirectSampleMode::OFF,
             offset_freq: 0,
             corr: 0,
             force_bt: false,
+            force_ds: false,
             fir: *DEFAULT_FIR,
         };
         sdr.init();
         sdr
     }
 
-    pub fn set_tuner_gain_mode(&mut self, mode: TunerGainMode){
+    // TunerGain has mode and gain, so this replaces rtlsdr_set_tuner_gain_mode
+    pub fn set_tuner_gain(&mut self, gain: TunerGain){
         self.set_i2c_repeater(true);
-        self.tuner.set_gain_mode(&self.handle, mode);
+        self.tuner.set_gain(&self.handle, gain);
         self.set_i2c_repeater(false);
     }
 
@@ -76,10 +91,10 @@ impl RtlSdr {
         self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_CTL, 0x0000, 2);
     }
 
-    pub fn set_if_freq(&self, freq: u32) {
+    pub fn set_if_freq(&mut self, freq: u32) {
         // Read corrected clock value
-        let xtal = self.get_xtal_freq();
-        let if_freq = (2_u32.pow(freq) / xtal) as i32 * -1;
+        self.xtal = self.get_xtal_freq();
+        let if_freq = (freq * 2_u32.pow(22) / self.xtal) as i32 * -1;
         self.handle.demod_write_reg(1, 0x19, ((if_freq >> 16) & 0x3f) as u16, 1);
         self.handle.demod_write_reg(1, 0x1a, ((if_freq >> 8) & 0xff) as u16, 1);
         self.handle.demod_write_reg(1, 0x1b, (if_freq & 0xff) as u16, 1);
@@ -90,7 +105,7 @@ impl RtlSdr {
     }
 
     pub fn set_center_freq(&mut self, freq: u32) {
-        if self.direct_sampling {
+        if !matches!(self.direct_sampling, DirectSampleMode::OFF) {
             self.set_if_freq(freq);
         } else {
             self.set_i2c_repeater(true);
@@ -99,6 +114,24 @@ impl RtlSdr {
             self.set_i2c_repeater(false);            
         }
         self.freq = freq;
+    }
+
+    pub fn set_freq_correction(&mut self, ppm: i32) {
+        if self.corr == ppm {
+            return ;
+        }
+        self.corr = ppm;
+        self.set_sample_freq_correction(ppm);
+
+        // Read corrected clock value into tuner
+        self.tuner.set_xtal_freq(self.get_tuner_xtal_freq());
+
+        // Retune to apply new correction value
+        self.set_center_freq(self.freq);
+    }
+
+    pub fn get_freq_correction(&self) -> i32 {
+        self.corr
     }
 
     pub fn get_sample_rate(&self) -> u32 {
@@ -130,11 +163,11 @@ impl RtlSdr {
             self.rate
         };
         self.tuner.set_bandwidth(&self.handle, val, self.rate);
+        self.set_i2c_repeater(false);
         if self.tuner.get_info().id == r820t::TUNER_ID {
             self.set_if_freq(self.tuner.get_if_freq());
             self.set_center_freq(self.freq);
         }
-        self.set_i2c_repeater(false);
 
         let mut tmp: u16 = (rsamp_ratio >> 16) as u16;
         self.handle.demod_write_reg(1, 0x9f, tmp, 2);
@@ -149,11 +182,83 @@ impl RtlSdr {
 
         // Recalculate offset frequency if offset tuning is enabled
         if self.offset_freq != 0 {
-            // TODO: set_offset_tuning
+            self.set_offset_tuning(true);
         }
         
     }
 
+    pub fn set_tuner_bandwidth(&mut self, bw: u32) {
+        let val = if bw > 0 {
+            bw
+        } else {
+            self.rate
+        };
+        self.set_i2c_repeater(true);
+        self.tuner.set_bandwidth(&self.handle, bw, self.rate);
+        self.set_i2c_repeater(false);
+        if self.tuner.get_info().id == r820t::TUNER_ID {
+            self.set_if_freq(self.tuner.get_if_freq());
+            self.set_center_freq(self.freq);
+        }
+        self.bw = bw;
+    }
+
+    fn set_direct_sampling(&mut self, mut mode: DirectSampleMode) {
+        if self.force_ds {
+            mode = DirectSampleMode::ON_SWAP;
+        }
+        match mode {
+            (DirectSampleMode::ON | DirectSampleMode::ON_SWAP) => {
+                self.set_i2c_repeater(true);
+                self.tuner.exit(&self.handle);
+                self.set_i2c_repeater(false);
+    
+                // Disable Zero-IF mode
+                self.handle.demod_write_reg(1, 0xb1, 0x1a, 1);
+    
+                // Disable spectrum inversion
+                self.handle.demod_write_reg(1, 0x15, 0x00, 1);
+    
+                // Only enable in-phase ADC input
+                self.handle.demod_write_reg(0, 0x08, 0x4d, 1);
+    
+                // Check whether to swap I and Q ADC
+                if matches!(mode, DirectSampleMode::ON_SWAP) {
+                    self.handle.demod_write_reg(0, 0x06, 0x90, 1);
+                    println!("Enabled direct sampling mode: ON (swapped)");
+                } else {
+                    self.handle.demod_write_reg(0, 0x06, 0x80, 1);
+                    println!("Enabled direct sampling mode: ON");
+                }
+                self.direct_sampling = mode;
+            },
+            DirectSampleMode::OFF => {
+                self.set_i2c_repeater(true);
+                self.tuner.init(&self.handle);
+                self.set_i2c_repeater(false);
+
+                if self.tuner.get_info().id == r820t::TUNER_ID {
+                    // tuner init already does all this
+                    // self.set_if_freq(R82XX_IF_FREQ);        
+                    // Enable spectrum inversion
+                    // handle.demod_write_reg(1, 0x15, 0x01, 1);
+                } else {
+                    self.set_if_freq(0);
+
+                    // Enable in-phase + Quadrature ADC input
+                    self.handle.demod_write_reg(0, 0x08, 0xcd, 1);
+
+                    // Enable Zero-IF mode
+                    self.handle.demod_write_reg(1, 0xb1, 0x1b, 1);
+                }
+                // opt_adc_iq = 0, default ADC_I/ADC_Q datapath
+                self.handle.demod_write_reg(0, 0x06, 0x80, 1);
+                println!("Disabled direct sampling mode");
+                self.direct_sampling = DirectSampleMode::OFF;
+            },
+        }
+        self.set_center_freq(self.freq);
+    }
     
     // RTL-SDR-BLOG Hack, enables us to turn on the bias tee by clicking on "offset tuning" 
     pub fn set_offset_tuning(&self, enable: bool) {
@@ -172,11 +277,46 @@ impl RtlSdr {
         (self.xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
     }
 
+    pub fn get_tuner_xtal_freq(&self) -> u32 {
+        (self.tuner_xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
+    }
+
+    pub fn set_xtal_freq(&mut self, rtl_freq: u32, tuner_freq: u32) {
+        if rtl_freq > 0 && (rtl_freq < MIN_RTL_XTAL_FREQ || rtl_freq > MAX_RTL_XTAL_FREQ) {
+            println!("set_xtal_freq error: rtl_freq {} out of bounds", rtl_freq);
+            return ;
+        }
+        if rtl_freq > 0 && self.xtal != rtl_freq {
+            self.xtal = rtl_freq;
+
+            // Update xtal-dependent settings
+            if self.rate != 0 {
+                self.set_sample_rate(self.rate);
+            }
+        }
+
+        if self.tuner.get_xtal_freq() != tuner_freq {
+            if tuner_freq == 0 {
+                self.tuner_xtal = self.xtal;
+            } else {
+                self.tuner_xtal = tuner_freq;
+            }
+
+            // Read corrected clock value into tuner
+            self.tuner.set_xtal_freq(self.get_tuner_xtal_freq());
+
+            // Update xtal-dependent settings
+            if self.freq != 0 {
+                self.set_center_freq(self.freq);
+            }
+        }
+    }
+
     fn init(&mut self) {
         self.handle.print_device_info();
         self.handle.claim_interface(INTERFACE_ID);
         self.handle.test_write();
-        self.power_on();
+        self.init_baseband();
         self.set_i2c_repeater(true);
         
         self.tuner = {
@@ -198,43 +338,7 @@ impl RtlSdr {
         self.set_i2c_repeater(false);
     }
 
-    fn set_sample_freq_correction(&self, ppm: i32) {
-        let offs = (ppm * (-1) * 2_i32.pow(24) / 1_000_000) as i16;
-        self.handle.demod_write_reg(1, 0x3f, (offs & 0xff) as u16, 1);
-        self.handle.demod_write_reg(1, 0x3e, ((offs >> 8) & 0x3f) as u16, 1);
-    }
-
-    fn set_gpio(&self, gpio_pin: u8, mut on: bool) {
-        // If force_bt is on from the EEPROM, do not allow bias tee to turn off
-        if self.force_bt {
-            on = true;
-        }
-        self.set_gpio_output(gpio_pin);
-        self.set_gpio_bit(gpio_pin, on);
-    }
-
-    fn set_gpio_bit(&self, mut gpio: u8, val: bool) {
-        let mut r: u16 = 0;
-        gpio = 1 << gpio;
-        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPO, 1);
-        r = if val {
-            r | gpio as u16
-        } else {
-            r & !gpio as u16
-        };
-        self.handle.write_reg(usb::BLOCK_SYS, usb::GPO, r, 1);
-    }
-
-    fn set_gpio_output(&self, mut gpio: u8) {
-        gpio = 1 << gpio;
-        let mut r = 0;
-        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPD, 1);
-        self.handle.write_reg(usb::BLOCK_SYS, usb::GPD, r & !gpio as u16, 1);
-        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPOE, 1);
-        self.handle.write_reg(usb::BLOCK_SYS, usb::GPOE, r | gpio as u16, 1);
-    }
-
-    fn power_on(&self) {
+    fn init_baseband(&self) {
         // Init baseband
         // println!("Initialize USB");
         self.handle.write_reg(usb::BLOCK_USB, usb::USB_SYSCTL, 0x09, 1);
@@ -284,6 +388,52 @@ impl RtlSdr {
         self.handle.demod_write_reg(0, 0x0d, 0x83, 1);
     }
 
+    fn deinit_baseband(&self) {
+        // Deinitialize tuner
+        self.set_i2c_repeater(true);
+        self.tuner.exit(&self.handle);
+        self.set_i2c_repeater(false);
+
+        // Power-off demodulator and ADCs
+        self.handle.write_reg(usb::BLOCK_SYS, usb::DEMOD_CTL, 0x20, 1);
+    }
+
+    fn set_sample_freq_correction(&self, ppm: i32) {
+        let offs = (ppm * (-1) * 2_i32.pow(24) / 1_000_000) as i16;
+        self.handle.demod_write_reg(1, 0x3f, (offs & 0xff) as u16, 1);
+        self.handle.demod_write_reg(1, 0x3e, ((offs >> 8) & 0x3f) as u16, 1);
+    }
+
+    fn set_gpio(&self, gpio_pin: u8, mut on: bool) {
+        // If force_bt is on from the EEPROM, do not allow bias tee to turn off
+        if self.force_bt {
+            on = true;
+        }
+        self.set_gpio_output(gpio_pin);
+        self.set_gpio_bit(gpio_pin, on);
+    }
+
+    fn set_gpio_bit(&self, mut gpio: u8, val: bool) {
+        let mut r: u16 = 0;
+        gpio = 1 << gpio;
+        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPO, 1);
+        r = if val {
+            r | gpio as u16
+        } else {
+            r & !gpio as u16
+        };
+        self.handle.write_reg(usb::BLOCK_SYS, usb::GPO, r, 1);
+    }
+
+    fn set_gpio_output(&self, mut gpio: u8) {
+        gpio = 1 << gpio;
+        let mut r = 0;
+        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPD, 1);
+        self.handle.write_reg(usb::BLOCK_SYS, usb::GPD, r & !gpio as u16, 1);
+        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPOE, 1);
+        self.handle.write_reg(usb::BLOCK_SYS, usb::GPOE, r | gpio as u16, 1);
+    }
+
     fn set_i2c_repeater(&self, enable: bool) {
         let val = match enable {
             true    => 0x18,
@@ -296,15 +446,19 @@ impl RtlSdr {
     pub fn set_fir(&self, fir: &[i32; FIR_LEN]) {
         const TMP_LEN: usize = 20;
         let mut tmp: [u8; TMP_LEN] = [0;TMP_LEN];
-
-        for i in 0..7 {
+        // First 8 values are i8
+        for i in 0..8 {
             let val = fir[i];
             if val < -128 || val > 127 {
                 panic!("i8 FIR coefficient out of bounds! {}", val);
             }
             tmp[i] = val as u8;
         }
-        for i in (0..7).step_by(2) {
+        // Next 12 are i12, so don't line up with byte boundaries and need to unpack
+        // 12 i12 values from 4 pairs of bytes in fir. Example:
+        // fir: 4b5, 7f8, 3e8, 619
+        // tmp: 4b, 57, f8, 3e, 86, 19
+        for i in (0..8).step_by(2) {
             let val0 = fir[8+i];
             let val1 = fir[8+i+1];
             if val0 < -2048 || val0 > 2047 {
@@ -317,8 +471,8 @@ impl RtlSdr {
             tmp[8 + i * 3 / 2 + 2] = val1 as u8;
         }
 
-        for i in 0..TMP_LEN - 1 {
-            self.handle.demod_write_reg(1, 0x1c + 1, tmp[i] as u16, 1);
+        for i in 0..TMP_LEN {
+            self.handle.demod_write_reg(1, 0x1c + i as u16, tmp[i] as u16, 1);
         }
     }
 

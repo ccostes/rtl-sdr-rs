@@ -38,8 +38,10 @@ pub const USB_EPA_MAXPKT: u16   = 0x2158;
 pub const USB_EPA_MAXPKT_2: u16 = 0x215a;
 pub const USB_EPA_FIFO_CFG: u16 = 0x2160;
 
+const CTRL_IN: u8 = rusb::constants::LIBUSB_ENDPOINT_IN | rusb::constants::LIBUSB_REQUEST_TYPE_VENDOR;
+const CTRL_OUT: u8 = rusb::constants::LIBUSB_ENDPOINT_OUT | rusb::constants::LIBUSB_REQUEST_TYPE_VENDOR;
 const CTRL_TIMEOUT: Duration = Duration::from_millis(300);
-
+#[derive(Debug)]
 pub struct RtlSdrDeviceHandle {
     handle: DeviceHandle<Context>,
 }
@@ -115,16 +117,13 @@ impl RtlSdrDeviceHandle {
     }
 
     pub fn read_array(&self, block: u16, addr: u16, arr: &mut [u8], _len: u8) -> usize {
-        let type_vendor_in = rusb::request_type(rusb::Direction::In, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let index: u16 = block << 8;
-        self.handle.read_control(type_vendor_in, 0, addr, index, arr, CTRL_TIMEOUT).unwrap()
+        self.handle.read_control(CTRL_IN, 0, addr, index, arr, CTRL_TIMEOUT).unwrap()
     }
     
     pub fn write_array(&self, block: u16, addr: u16, arr: &[u8], len: usize) -> Result<usize> {
-        let type_vendor_out = 
-            rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let index: u16 = (block << 8) | 0x10;
-        self.handle.write_control(type_vendor_out, 0, addr, index, &arr[..len], CTRL_TIMEOUT)
+        self.handle.write_control(CTRL_OUT, 0, addr, index, &arr[..len], CTRL_TIMEOUT)
     }
     
     pub fn i2c_read_reg(&self, i2c_addr: u8, reg: u8) -> Result<u8> {
@@ -150,17 +149,13 @@ impl RtlSdrDeviceHandle {
     }
 
     pub fn read_reg(&self, block: u16, addr: u16, len: usize) -> u16 {
-        let type_vendor_out = 
-            rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let mut data: [u8;2] = [0,0];
         let index: u16 = block << 8;
-        self.handle.read_control(type_vendor_out, 0, addr, index, &mut data[..len], CTRL_TIMEOUT);
+        self.handle.read_control(CTRL_IN, 0, addr, index, &mut data[..len], CTRL_TIMEOUT);
         BigEndian::read_u16(&data)
     }
 
     pub fn write_reg(&self, block: u16, addr: u16, val: u16, len: usize) -> usize {
-        let type_vendor_out = 
-            rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let data: [u8; 2] = val.to_be_bytes();
         let data_slice = if len == 1 {
             &data[1..2]
@@ -170,7 +165,7 @@ impl RtlSdrDeviceHandle {
         let index = (block << 8) | 0x10;
         // println!("write_reg addr: {:x} index: {:x} data: {:x?} data slice: {}", addr, index, data, data_slice.len());
         match self.handle.write_control(
-            type_vendor_out, 0, addr, index, data_slice, CTRL_TIMEOUT) {
+            CTRL_OUT, 0, addr, index, data_slice, CTRL_TIMEOUT) {
             Ok(n) => n,
             Err(e) => {
                 println!("write_reg failed: {} block: {block} addr: {addr} val: {val}", e);
@@ -180,12 +175,10 @@ impl RtlSdrDeviceHandle {
     }
 
     pub fn demod_read_reg(&self, page: u16, addr: u16) -> u16 {
-        let type_vendor_in = rusb::constants::LIBUSB_ENDPOINT_IN | rusb::constants::LIBUSB_REQUEST_TYPE_VENDOR;
-            // rusb::request_type(rusb::Direction::In, rusb::RequestType::Vendor, rusb::Recipient::Device);
         let mut data: [u8; 2] = [0, 0];
         let index = page;
         let _bytes = match self.handle.read_control(
-                type_vendor_in, 0, (addr << 8) | 0x20, index, &mut data, CTRL_TIMEOUT) {
+                CTRL_IN, 0, (addr << 8) | 0x20, index, &mut data, CTRL_TIMEOUT) {
                     Ok(n) => {
                         // println!("demod_read_reg got {} bytes: [{:#02x}, {:#02x}] value: {:x}", n, data[0], data[1], BigEndian::read_u16(&data));
                         n
@@ -199,22 +192,18 @@ impl RtlSdrDeviceHandle {
         reg
     }
 
-    pub fn demod_write_reg(&self, page: u16, addr: u16, val: u16, len: usize) -> usize {
-        let type_vendor_out = rusb::constants::LIBUSB_ENDPOINT_OUT | rusb::constants::LIBUSB_REQUEST_TYPE_VENDOR;
-            // rusb::request_type(rusb::Direction::Out, rusb::RequestType::Vendor, rusb::Recipient::Device);
+    pub fn demod_write_reg(&self, page: u16, mut addr: u16, val: u16, len: usize) -> usize {
         let index = 0x10 | page;
-        let addr_write = (addr << 8) | 0x20; 
+        addr = (addr << 8) | 0x20; 
         let data: [u8; 2] = val.to_be_bytes();
-        // println!("demod_write_reg addr: {:x} index: {:x} data: [{:#02x}, {:#02x}]", addr_write, index, data[0], data[1]);
         let data_slice = if len == 1 {
             &data[1..2]
         } else {
             &data
         };
-        
 
         let bytes = match self.handle.write_control(
-            type_vendor_out, 0, addr_write, index, data_slice, CTRL_TIMEOUT) {
+            CTRL_OUT, 0, addr, index, data_slice, CTRL_TIMEOUT) {
             Ok(n) => n,
             Err(e) => {
                 println!("demod_write_reg failed: {} page: {:#02x} addr: {:#02x} val: {:#02x}", e, page, addr, val);

@@ -5,14 +5,14 @@ use usb::RtlSdrDeviceHandle;
 
 const FREQUENCY: u32 = 120_900_000;
 const SAMPLE_RATE: u32 = 12_000;
-const GAIN: rtlsdr_rs::TunerGainMode = rtlsdr_rs::TunerGainMode::AUTO;
+const GAIN: rtlsdr_rs::TunerGain = rtlsdr_rs::TunerGain::AUTO;
 
 fn main() -> Result<()> {
     // Open device
     let mut sdr = RtlSdr::open();
-
+    println!("{:?}", sdr);
     // Set the tuner gain
-    sdr.set_tuner_gain_mode(GAIN);
+    sdr.set_tuner_gain(GAIN);
     // Disable bias-tee
     sdr.set_bias_tee(false);
     // Reset the endpoint before we try to read from it (mandatory)
