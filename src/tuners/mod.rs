@@ -16,8 +16,9 @@ pub struct TunerInfo {
 }
 
 pub trait Tuner: std::fmt::Debug {
-    fn init(&self, handle: &RtlSdrDeviceHandle);
+    fn init(&mut self, handle: &RtlSdrDeviceHandle);
     fn get_info(&self) -> TunerInfo;
+    fn get_gains(&self) -> Vec<i32>;
     fn read_gain(&self, handle: &RtlSdrDeviceHandle) -> i32;
     fn set_gain(&mut self, handle: &RtlSdrDeviceHandle, gain: TunerGain);
     fn set_freq(&mut self, handle: &RtlSdrDeviceHandle, freq: u32);
@@ -30,8 +31,9 @@ pub trait Tuner: std::fmt::Debug {
 #[derive(Debug)]
 pub struct NoTuner {}
 impl Tuner for NoTuner {
-    fn init(&self, handle: &RtlSdrDeviceHandle) {}
+    fn init(&mut self, handle: &RtlSdrDeviceHandle) {}
     fn get_info(&self) -> TunerInfo { TunerInfo { id: "", name: "", i2c_addr: 0, check_addr: 0, check_val: 0 } }
+    fn get_gains(&self) -> Vec<i32>{ vec![] }
     fn read_gain(&self, handle: &RtlSdrDeviceHandle) -> i32 { 0 }
     fn set_gain(&mut self, handle: &RtlSdrDeviceHandle, gain: TunerGain) {}
     fn set_freq(&mut self, handle: &RtlSdrDeviceHandle, freq: u32){}

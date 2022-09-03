@@ -4,7 +4,7 @@ use crate::usb::RtlSdrDeviceHandle;
 const R820T_I2C_ADDR: u16 = 0x34;
 // const R828D_I2C_ADDR: u8 = 0x74; for now only support the T
 const VER_NUM: u8 = 49;
-const R82XX_IF_FREQ: u32 = 3570000;
+pub const R82XX_IF_FREQ: u32 = 3570000;
 const NUM_REGS: usize = 30;
 const REG_SHADOW_START: usize = 5;
 const MAX_I2C_MSG_LEN: usize = 8;
@@ -24,6 +24,12 @@ const REG_INIT: [u8; 27] = [
 * http://steve-m.de/projects/rtl-sdr/gain_measurement/r820t/
 */
 const VGA_BASE_GAIN: i32 = -47;
+const GAINS: [i32; 29] = [
+    0, 9, 14, 27, 37, 77, 87, 125, 144, 157,
+    166, 197, 207, 229, 254, 280, 297, 328,
+    338, 364, 372, 386, 402, 421, 434, 439,
+    445, 480, 496
+];
 const r82xx_vga_gain_steps: [i32; 16]  = [
     0, 26, 26, 30, 42, 35, 24, 13, 14, 32, 36, 34, 35, 37, 35, 36
 ];
@@ -297,7 +303,7 @@ pub const TUNER_INFO: TunerInfo = TunerInfo {
 
 impl R820T {
     pub fn new(handle: &mut RtlSdrDeviceHandle) -> R820T {
-        let tuner = R820T { 
+        let mut tuner = R820T { 
             info: TUNER_INFO, 
             regs: vec![0; NUM_REGS],
             freq: 0,
@@ -315,23 +321,30 @@ impl R820T {
 }
     
 impl Tuner for R820T {
-    fn init(&self, handle: &RtlSdrDeviceHandle) {
-        // disable Zero-IF mode
-        handle.demod_write_reg(1, 0xb1, 0x1a, 1);
+    // Combined from r820t_init and r82xx_init
+    fn init(&mut self, handle: &RtlSdrDeviceHandle) {
+        // TODO: set different I2C address and rafael_chip for R828D
 
-        // only enable In-phase ADC input
-        handle.demod_write_reg(0, 0x08, 0x4d, 1);
+        self.get_xtal_freq();
+        self.use_predetect = false;
 
-        // the R82XX use 3.57 MHz IF for the DVB-T 6 MHz mode, and
-        // 4.57 MHz for the 8 MHz mode
-        handle.set_if_freq(R82XX_IF_FREQ);
+        // <original>TODO: R828D might need r82xx_xtal_check()
+        self.xtal_cap_sel = XtalCapValue::XTAL_HIGH_CAP_0P;
 
-        // enable spectrum inversion
-        handle.demod_write_reg(1, 0x15, 0x01, 1);
+        // Initialize registers
+        self.write_regs(handle, 0x05, &REG_INIT);
+
+        self.set_tv_standard(handle, 3, TunerType::TUNER_DIGITAL_TV);
+        self.sysfreq_sel(handle, 0, TunerType::TUNER_DIGITAL_TV, DeliverySystem::SYS_DVBT);
+        self.init_done = true;
     }
 
     fn get_info(&self) -> TunerInfo {
         self.info
+    }
+
+    fn get_gains(&self) -> Vec<i32> {
+        GAINS.to_vec()
     }
 
     fn read_gain(&self, handle: &RtlSdrDeviceHandle) -> i32 {
@@ -927,24 +940,6 @@ impl R820T {
         // TODO: error
         0
     }
-
-    // Combined from r820t_init and r82xx_init
-    fn init(&mut self, handle: &RtlSdrDeviceHandle) {
-        // TODO: set different I2C address and rafael_chip for R828D
-
-        self.get_xtal_freq();
-        self.use_predetect = false;
-
-        // <original>TODO: R828D might need r82xx_xtal_check()
-        self.xtal_cap_sel = XtalCapValue::XTAL_HIGH_CAP_0P;
-
-        // Initialize registers
-        self.write_regs(handle, 0x05, &REG_INIT);
-
-        self.set_tv_standard(handle, 3, TunerType::TUNER_DIGITAL_TV);
-        self.sysfreq_sel(handle, 0, TunerType::TUNER_DIGITAL_TV, DeliverySystem::SYS_DVBT);
-        self.init_done = true;
-    }
     
     /// Write register with bit-masked data
     fn write_reg_mask(&mut self, handle: &RtlSdrDeviceHandle, reg: usize, val: u8, bit_mask: u8) {
@@ -981,6 +976,10 @@ impl R820T {
             val_index += size;
             reg_index += size;
             len -= size;
+            println!("{}", len);
+            if len <= 0 {
+                break;
+            }
         }
     }
 
@@ -997,7 +996,7 @@ impl R820T {
 
     /// Cache register values locally. Will panic if reg < REG_SHADOW_START or (reg + len) > NUM_REG 
     fn shadow_store(&mut self, reg: usize, val: &[u8]) {
-        assert!(reg < REG_SHADOW_START);
+        assert!(reg >= REG_SHADOW_START);
         assert!(reg + val.len() <= NUM_REGS);
         let index = reg - REG_SHADOW_START;
         self.regs[reg..reg + val.len()].copy_from_slice(val);

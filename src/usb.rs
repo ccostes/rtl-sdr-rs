@@ -4,6 +4,9 @@ use std::time::Duration;
 
 const DEF_RTL_XTAL_FREQ: u32 = 28800000; // should this be here?
 
+const EEPROM_ADDR: u16 = 0xa0;
+pub const EEPROM_SIZE: usize = 256;
+
 // Blocks
 pub const BLOCK_DEMOD: u16  = 0;
 pub const BLOCK_USB: u16    = 1;
@@ -146,6 +149,14 @@ impl RtlSdrDeviceHandle {
     
     pub fn i2c_read(&self, i2c_addr: u16, buffer: &mut[u8], len: u8) {
         self.read_array(BLOCK_IIC, i2c_addr, buffer, len);
+    }
+
+    pub fn read_eeprom(&self, mut data: &[u8], offset: u8, len: usize) {
+        assert!(len + offset as usize <= 256); // TODO: maybe not an assert here?
+        self.write_array(BLOCK_IIC, EEPROM_ADDR, &[offset], 1);
+        for i in 0..len {
+            self.read_array(BLOCK_IIC, EEPROM_ADDR, &mut [data[i]], 1);
+        }
     }
 
     pub fn read_reg(&self, block: u16, addr: u16, len: usize) -> u16 {

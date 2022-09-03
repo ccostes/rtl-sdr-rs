@@ -77,6 +77,15 @@ impl RtlSdr {
         sdr
     }
 
+    pub fn close(&mut self) {
+        // TODO: wait until async is inactive
+        self.deinit_baseband();
+    }
+
+    pub fn get_tuner_gains(&self) -> Vec<i32> {
+        self.tuner.get_gains()
+    }
+
     // TunerGain has mode and gain, so this replaces rtlsdr_set_tuner_gain_mode
     pub fn set_tuner_gain(&mut self, gain: TunerGain){
         self.set_i2c_repeater(true);
@@ -91,22 +100,13 @@ impl RtlSdr {
         self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_CTL, 0x0000, 2);
     }
 
-    pub fn set_if_freq(&mut self, freq: u32) {
-        // Read corrected clock value
-        self.xtal = self.get_xtal_freq();
-        let if_freq = (freq * 2_u32.pow(22) / self.xtal) as i32 * -1;
-        self.handle.demod_write_reg(1, 0x19, ((if_freq >> 16) & 0x3f) as u16, 1);
-        self.handle.demod_write_reg(1, 0x1a, ((if_freq >> 8) & 0xff) as u16, 1);
-        self.handle.demod_write_reg(1, 0x1b, (if_freq & 0xff) as u16, 1);
-    }
-
     pub fn get_center_freq(&self) -> u32 {
         self.freq
     }
 
     pub fn set_center_freq(&mut self, freq: u32) {
         if !matches!(self.direct_sampling, DirectSampleMode::OFF) {
-            self.set_if_freq(freq);
+            self.handle.set_if_freq(freq);
         } else {
             self.set_i2c_repeater(true);
             // TODO: figure out offset_freq, currently never set
@@ -147,7 +147,9 @@ impl RtlSdr {
 
         // Compute exact sample rate
         let rsamp_ratio = ((self.xtal * 2_u32.pow(22)) as u32 / rate) & 0x0ffffffc;
+        println!("rate: {}, xtal: {}, rsamp_ratio: {}", rate, self.xtal, rsamp_ratio);
         let real_resamp_ratio = rsamp_ratio | ((rsamp_ratio & 0x08000000) << 1);
+        println!("real_resamp_ratio: {}", real_resamp_ratio);
         let real_rate = (self.xtal * 2_u32.pow(22)) as f64 / real_resamp_ratio as f64;
         if rate as f64 != real_rate {
             println!("Exact sample rate is {} Hz", real_rate);
@@ -165,7 +167,7 @@ impl RtlSdr {
         self.tuner.set_bandwidth(&self.handle, val, self.rate);
         self.set_i2c_repeater(false);
         if self.tuner.get_info().id == r820t::TUNER_ID {
-            self.set_if_freq(self.tuner.get_if_freq());
+            self.handle.set_if_freq(self.tuner.get_if_freq());
             self.set_center_freq(self.freq);
         }
 
@@ -197,13 +199,24 @@ impl RtlSdr {
         self.tuner.set_bandwidth(&self.handle, bw, self.rate);
         self.set_i2c_repeater(false);
         if self.tuner.get_info().id == r820t::TUNER_ID {
-            self.set_if_freq(self.tuner.get_if_freq());
+            self.handle.set_if_freq(self.tuner.get_if_freq());
             self.set_center_freq(self.freq);
         }
         self.bw = bw;
     }
 
-    fn set_direct_sampling(&mut self, mut mode: DirectSampleMode) {
+    pub fn set_testmode(&mut self, on: bool) {
+        match on {
+            true => {
+                self.handle.demod_write_reg(0, 0x19, 0x03, 1);
+            },
+            false => {
+                self.handle.demod_write_reg(0, 0x19, 0x05, 1);
+            },
+        }
+    }
+
+    pub fn set_direct_sampling(&mut self, mut mode: DirectSampleMode) {
         if self.force_ds {
             mode = DirectSampleMode::ON_SWAP;
         }
@@ -239,11 +252,11 @@ impl RtlSdr {
 
                 if self.tuner.get_info().id == r820t::TUNER_ID {
                     // tuner init already does all this
-                    // self.set_if_freq(R82XX_IF_FREQ);        
+                    // self.handle.set_if_freq(R82XX_IF_FREQ);        
                     // Enable spectrum inversion
                     // handle.demod_write_reg(1, 0x15, 0x01, 1);
                 } else {
-                    self.set_if_freq(0);
+                    self.handle.set_if_freq(0);
 
                     // Enable in-phase + Quadrature ADC input
                     self.handle.demod_write_reg(0, 0x08, 0xcd, 1);
@@ -333,7 +346,41 @@ impl RtlSdr {
                 r820t::TUNER_ID => Box::new(r820t::R820T::new(&mut self.handle)),
                 _ => panic!("Unable to find recognized tuner"),
             }
-        };    
+        };
+        // Use the RTL clock value by default
+        self.tuner.set_xtal_freq(self.xtal);
+        
+        // disable Zero-IF mode
+        self.handle.demod_write_reg(1, 0xb1, 0x1a, 1);
+
+        // only enable In-phase ADC input
+        self.handle.demod_write_reg(0, 0x08, 0x4d, 1);
+
+        // the R82XX use 3.57 MHz IF for the DVB-T 6 MHz mode, and
+        // 4.57 MHz for the 8 MHz mode
+        self.handle.set_if_freq(r820t::R82XX_IF_FREQ);
+
+        // enable spectrum inversion
+        self.handle.demod_write_reg(1, 0x15, 0x01, 1);
+
+        // Hack to force the Bias T to always be on if we set the IR-Endpoint bit in the EEPROM to 0. Default on EEPROM is 1.
+        let mut buf:[u8; usb::EEPROM_SIZE] = [0;usb::EEPROM_SIZE];
+        self.handle.read_eeprom(&buf, 0, usb::EEPROM_SIZE);
+        if buf[7] & 0x02 != 0 {
+            self.force_bt = false;
+        } else {
+            self.force_bt = true;
+        }
+        // Hack to force direct sampling mode to always be on if we set the remote-enabled bit in the EEPROM to 1. Default on EEPROM is 0.
+        if buf[7] & 0x01 != 0 {
+            self.force_ds = true;
+        } else {
+            self.force_ds = false;
+        }
+        // TODO: if(force_ds){tuner_type = TUNER_UNKNOWN}
+
+        self.tuner.init(&self.handle);
+
         // Finished Init
         self.set_i2c_repeater(false);
     }
