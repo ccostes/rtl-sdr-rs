@@ -5,18 +5,20 @@ const R820T_I2C_ADDR: u16 = 0x34;
 // const R828D_I2C_ADDR: u8 = 0x74; for now only support the T
 const VER_NUM: u8 = 49;
 pub const R82XX_IF_FREQ: u32 = 3570000;
-const NUM_REGS: usize = 30;
-const REG_SHADOW_START: usize = 5;
+const NUM_REGS: usize = 32;
+const RW_REG_START: usize = 5;                          // registers 0-4 are read-only
+const NUM_CACHE_REGS: usize = NUM_REGS - RW_REG_START;  // only cache RW regs
 const MAX_I2C_MSG_LEN: usize = 8;
 
-const REG_INIT: [u8; 27] = [
-	0x83, 0x32, 0x75,			    /* 05 to 07 */
-	0xc0, 0x40, 0xd6, 0x6c,			/* 08 to 0b */
-	0xf5, 0x63, 0x75, 0x68,			/* 0c to 0f */
-	0x6c, 0x83, 0x80, 0x00,			/* 10 to 13 */
-	0x0f, 0x00, 0xc0, 0x30,			/* 14 to 17 */
-	0x48, 0xcc, 0x60, 0x00,			/* 18 to 1b */
-	0x54, 0xae, 0x4a, 0xc0			/* 1c to 1f */
+// Init registers (32 total, first 5 are read-only)
+const REG_INIT: [u8; NUM_CACHE_REGS] = [
+	0x83, 0x32, 0x75,               /* 05 to 07 */
+	0xc0, 0x40, 0xd6, 0x6c,         /* 08 to 0b */
+	0xf5, 0x63, 0x75, 0x68,         /* 0c to 0f */
+	0x6c, 0x83, 0x80, 0x00,         /* 10 to 13 */
+	0x0f, 0x00, 0xc0, 0x30,         /* 14 to 17 */
+	0x48, 0xcc, 0x60, 0x00,         /* 18 to 1b */
+	0x54, 0xae, 0x4a, 0xc0,         /* 1c to 1f */
 ];
 
 /* measured with a Racal 6103E GSM test set at 928 MHz with -60 dBm
@@ -276,7 +278,7 @@ enum DeliverySystem {
 #[derive(Debug)]
 pub struct R820T {
     pub info: TunerInfo,
-    regs: Vec<u8>,
+    regs: [u8; NUM_CACHE_REGS],
     pub freq: u32,
     int_freq: u32,
     xtal_cap_sel: XtalCapValue,
@@ -305,7 +307,7 @@ impl R820T {
     pub fn new(handle: &mut RtlSdrDeviceHandle) -> R820T {
         let mut tuner = R820T { 
             info: TUNER_INFO, 
-            regs: vec![0; NUM_REGS],
+            regs: REG_INIT,
             freq: 0,
             int_freq: 0,
             xtal_cap_sel: XtalCapValue::XTAL_LOW_CAP_30P,
@@ -315,7 +317,6 @@ impl R820T {
             use_predetect: false,
             fil_cal_code: 0,
         };
-        tuner.init(handle);
         tuner
     }
 }
@@ -324,19 +325,21 @@ impl Tuner for R820T {
     // Combined from r820t_init and r82xx_init
     fn init(&mut self, handle: &RtlSdrDeviceHandle) {
         // TODO: set different I2C address and rafael_chip for R828D
-
-        self.get_xtal_freq();
         self.use_predetect = false;
 
         // <original>TODO: R828D might need r82xx_xtal_check()
         self.xtal_cap_sel = XtalCapValue::XTAL_HIGH_CAP_0P;
 
         // Initialize registers
+        println!("Initialize registers");
         self.write_regs(handle, 0x05, &REG_INIT);
 
+        println!("Set TV Standard ");
         self.set_tv_standard(handle, 3, TunerType::TUNER_DIGITAL_TV);
+        println!("sysfreq_sel");
         self.sysfreq_sel(handle, 0, TunerType::TUNER_DIGITAL_TV, DeliverySystem::SYS_DVBT);
         self.init_done = true;
+        println!("Tuner Init complete");
     }
 
     fn get_info(&self) -> TunerInfo {
@@ -558,6 +561,7 @@ impl R820T {
 
     fn set_pll(&mut self, handle: &RtlSdrDeviceHandle, freq: u32) {
         // Frequency in kHz
+        println!("freq: {}", freq);
         let freq_khz = (freq + 500) / 1000;
         let pll_ref = self.xtal;
         let pll_ref_khz = (self.xtal + 500) / 1000;
@@ -606,7 +610,9 @@ impl R820T {
         self.write_reg_mask(handle, 0x10, div_num << 5, 0xe0);
 
         let vco_freq = freq as u64 * mix_div as u64;
+        println!("vco_freq: {}", vco_freq);
         let nint = (vco_freq / (2 * pll_ref as u64)) as u8;
+        println!("nint: {}", nint);
         // VCO contribution by SDM (kHz)
         let mut vco_fra = ((vco_freq - 2 * pll_ref as u64 * nint as u64) / 1000) as u32; 
 
@@ -614,9 +620,14 @@ impl R820T {
             println!("[R82xx] No valid PLL values for {} Hz!", freq);
             // TODO: Err here
         }
-        let ni = (nint - 13) / 4;
-        let si = nint - 4 * ni - 13;
-        self.write_regs(handle, 0x14, &[ni + (si << 6)]);
+        // Nint = 4 * Ni2c + Si2c + 13
+        // Some weird wrap-around stuff here, example cases from original code:
+        // nint: 31 ni: 4   si: 2
+        // nint: 3  ni: 254 si: 254
+        let ni = ((nint as i32).overflowing_sub(13).0 / 4) as u8;
+        let si = (nint as i32 - 4 * ni as i32 - 13) as u8;
+        println!("ni: {}, si: {}, reg: {}", ni, si, ni.overflowing_add(si << 6).0);
+        self.write_regs(handle, 0x14, &[ni.overflowing_add(si << 6).0]);
 
         // pw_sdm
         if vco_fra == 0 {
@@ -627,7 +638,7 @@ impl R820T {
 
         // SDM Calculator
         let mut sdm = 0;
-        let n_sdm = 2;
+        let mut n_sdm = 2;
         while vco_fra > 1 {
             if vco_fra > (2 * pll_ref_khz / n_sdm) {
                 sdm = sdm + 32768 / (n_sdm / 2);
@@ -636,7 +647,7 @@ impl R820T {
                     break;
                 }
             }
-            n_sdm << 1;
+            n_sdm = n_sdm << 1;
         }
         self.write_regs(handle, 0x16, &[(sdm >> 8) as u8]);
         self.write_regs(handle, 0x15, &[(sdm & 0xff) as u8]);
@@ -812,8 +823,8 @@ impl R820T {
         let flt_ext_widest = 0x00;	/* r15[7]: flt_ext_wide off */
         let polyfil_cur = 0x60;	/* r25[6:5]:min */
 
-        // Initialize shadow registers
-        self.regs = REG_INIT.to_vec();
+        // Initialize register cache
+        self.regs.copy_from_slice(&REG_INIT[0..NUM_CACHE_REGS]);
 
         // Init Flag & Xtal_check Result (inits VGA gain, needed?)
         self.write_reg_mask(handle, 0x0c, 0x00, 0x0f);
@@ -829,6 +840,7 @@ impl R820T {
 
         /* Check if standard changed. If so, filter calibration is needed */
         /* Since we call this function only once in rtlsdr, force calibration */
+        println!("calibrating");
         let need_calibration = true;
         if need_calibration {
             for _ in 0..2 {
@@ -839,6 +851,7 @@ impl R820T {
                 // X'tal cap 0pF for PLL
                 self.write_reg_mask(handle, 0x10, 0x00, 0x03);
 
+                println!("set pll");
                 self.set_pll(handle, filt_cal_lo * 1000);
 
                 // Start trigger
@@ -851,14 +864,17 @@ impl R820T {
                 self.read_reg(handle, 0x00, &mut data, 5);
                 self.fil_cal_code = data[4] & 0x0f;
                 if self.fil_cal_code & self.fil_cal_code != 0x0f {
+                    println!("Calbration successful!");
                     break;
                 }
                 // Narrowest
+                println!("narrowest");
                 if self.fil_cal_code == 0x0f {
                     self.fil_cal_code = 0;
                 }
             }
         }
+        println!("filt_q");
         self.write_reg_mask(handle, 0x0a, 
             filt_q | self.fil_cal_code, 0x1f);
 
@@ -911,8 +927,10 @@ impl R820T {
     fn xtal_check(&mut self, handle: &RtlSdrDeviceHandle) -> u8 {
         let mut data: [u8;3] = [0;3];
         
-        // Initialize the shadow registers
-        self.regs = REG_INIT.to_vec();
+        // Initialize register cache
+        for i in RW_REG_START..NUM_REGS {
+            self.regs[i] = REG_INIT[i];
+        }
 
         // cap 30pF & Drive Low
         self.write_reg_mask(handle, 0x10, 0x0b, 0x0b);
@@ -952,7 +970,7 @@ impl R820T {
 
     /// Read register data from local cache
     fn read_cache_reg(&self, reg: usize) -> u8 {
-        let index = reg - REG_SHADOW_START;
+        let index = reg - RW_REG_START;
         assert!(index >= 0 && index < NUM_REGS); // is assert the best thing to use here?
         self.regs[index]
     }
@@ -960,23 +978,22 @@ impl R820T {
     /// Write data to device registers (r82xx_write)
     fn write_regs(&mut self, handle: &RtlSdrDeviceHandle, reg: usize, val: &[u8]) {
         // Store write in local cache
-        self.shadow_store(reg, val);
+        self.reg_cache_store(reg, val);
         
         // Use I2C to write to device in chunks of MAX_I2C_MSG_LEN
         let mut len = val.len();
         let mut val_index = 0;
         let mut reg_index = reg;
-        loop {
+            loop {
             // First byte in message is the register addr, then the data
             let size = if len > MAX_I2C_MSG_LEN - 1 { MAX_I2C_MSG_LEN } else { len };
-            let mut buf: Vec<u8> = Vec::with_capacity(size + 1);
+            let mut buf: Vec<u8> = vec![0; size + 1];
             buf[0] = reg_index as u8;
             buf[1..].copy_from_slice(&val[val_index..val_index+size]);
             handle.i2c_write(R820T_I2C_ADDR, &buf);
             val_index += size;
             reg_index += size;
             len -= size;
-            println!("{}", len);
             if len <= 0 {
                 break;
             }
@@ -994,11 +1011,12 @@ impl R820T {
         }
     }
 
-    /// Cache register values locally. Will panic if reg < REG_SHADOW_START or (reg + len) > NUM_REG 
-    fn shadow_store(&mut self, reg: usize, val: &[u8]) {
-        assert!(reg >= REG_SHADOW_START);
-        assert!(reg + val.len() <= NUM_REGS);
-        let index = reg - REG_SHADOW_START;
+    /// Cache register values locally. 
+    /// Will panic if reg < RW_REG_START or (reg + len) > NUM_CACHE_REGS + 1
+    fn reg_cache_store(&mut self, mut reg: usize, val: &[u8]) {
+        assert!(reg >= RW_REG_START);
+        reg = reg - RW_REG_START;
+        assert!(reg + val.len() <= NUM_CACHE_REGS);
         self.regs[reg..reg + val.len()].copy_from_slice(val);
     }
 

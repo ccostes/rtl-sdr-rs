@@ -64,8 +64,8 @@ impl RtlSdr {
             rate: 0,
             bw: 0,
             ppm_correction: 0,
-            xtal: 0,
-            tuner_xtal: 0,
+            xtal: DEF_RTL_XTAL_FREQ,
+            tuner_xtal: DEF_RTL_XTAL_FREQ,
             direct_sampling: DirectSampleMode::OFF,
             offset_freq: 0,
             corr: 0,
@@ -146,11 +146,11 @@ impl RtlSdr {
         }
 
         // Compute exact sample rate
-        let rsamp_ratio = ((self.xtal * 2_u32.pow(22)) as u32 / rate) & 0x0ffffffc;
-        println!("rate: {}, xtal: {}, rsamp_ratio: {}", rate, self.xtal, rsamp_ratio);
+        let rsamp_ratio = ((self.xtal as u128 * 2_u128.pow(22) / rate as u128) & 0x0ffffffc) as u128;
+        println!("set_sample_rate: rate: {}, xtal: {}, rsamp_ratio: {}", rate, self.xtal, rsamp_ratio);
         let real_resamp_ratio = rsamp_ratio | ((rsamp_ratio & 0x08000000) << 1);
         println!("real_resamp_ratio: {}", real_resamp_ratio);
-        let real_rate = (self.xtal * 2_u32.pow(22)) as f64 / real_resamp_ratio as f64;
+        let real_rate = (self.xtal as u128 * 2_u128.pow(22)) as f64 / real_resamp_ratio as f64;
         if rate as f64 != real_rate {
             println!("Exact sample rate is {} Hz", real_rate);
         }
@@ -348,7 +348,8 @@ impl RtlSdr {
             }
         };
         // Use the RTL clock value by default
-        self.tuner.set_xtal_freq(self.xtal);
+        self.tuner_xtal = self.xtal;
+        self.tuner.set_xtal_freq(self.get_tuner_xtal_freq());
         
         // disable Zero-IF mode
         self.handle.demod_write_reg(1, 0xb1, 0x1a, 1);
@@ -378,11 +379,12 @@ impl RtlSdr {
             self.force_ds = false;
         }
         // TODO: if(force_ds){tuner_type = TUNER_UNKNOWN}
-
+        println!("Init tuner");
         self.tuner.init(&self.handle);
 
         // Finished Init
         self.set_i2c_repeater(false);
+        println!("Init complete");
     }
 
     fn init_baseband(&self) {

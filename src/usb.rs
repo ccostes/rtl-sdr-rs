@@ -1,6 +1,10 @@
-use rusb::{Context, Device, DeviceHandle, Result, UsbContext, Error};
+use rusb::{Context, DeviceHandle, Result, Error};
 use byteorder::{ByteOrder, LittleEndian, BigEndian};
 use std::time::Duration;
+
+#[cfg(test)]
+#[path = "usb_test.rs"]
+mod usb_test;
 
 const DEF_RTL_XTAL_FREQ: u32 = 28800000; // should this be here?
 
