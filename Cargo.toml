@@ -8,3 +8,7 @@ edition = "2021"
 [dependencies]
 rusb = "0.9"
 byteorder = "1"
+
+[dev-dependencies]
+rusb = "0.9"
+byteorder = "1"

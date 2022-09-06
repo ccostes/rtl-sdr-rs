@@ -1,6 +1,6 @@
 
 use rusb::{Context, Device, DeviceHandle, Result, UsbContext, Error};
-mod usb;
+pub mod usb;
 use usb::RtlSdrDeviceHandle;
 
 mod tuners;

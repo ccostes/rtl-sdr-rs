@@ -1,7 +1,6 @@
 use rtlsdr_rs::RtlSdr;
 use rusb::{Context, Device, DeviceHandle, Result, UsbContext, Error};
-mod usb;
-use usb::RtlSdrDeviceHandle;
+use rtlsdr_rs::usb::RtlSdrDeviceHandle;
 
 enum TestMode {
     NO_BENCHMARK,
@@ -42,14 +41,4 @@ fn main() -> Result<()> {
     // println!("Tuned to {} Hz", sdr.get_center_freq());
 
     Ok(())
-}
-
-fn sdr_init(sdr: &RtlSdr) {
-}
-
-fn optimal_settings(freq: u32, rate: u32) -> (u32, u32) {
-	// giant ball of hacks
-	// seems unable to do a single pass, 2:1
-
-    (0,0)
 }
