@@ -230,4 +230,8 @@ impl RtlSdrDeviceHandle {
             
         bytes
     }
+
+    pub fn bulk_transfer(&self, buf: &mut [u8]) -> Result<usize> {
+        self.handle.read_bulk(0x81, buf, Duration::ZERO)
+    }
 }

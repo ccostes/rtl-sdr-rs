@@ -9,6 +9,7 @@ use tuners::*;
 const VID: u16 = 0x0bda;
 const PID: u16 = 0x2838;
 const INTERFACE_ID: u8 = 0;
+pub const DEFAULT_BUF_LENGTH: usize = (16 * 16384);
 
 const DEF_RTL_XTAL_FREQ: u32 =	28_800_000;
 const MIN_RTL_XTAL_FREQ: u32 =	(DEF_RTL_XTAL_FREQ - 1000);
@@ -323,6 +324,10 @@ impl RtlSdr {
                 self.set_center_freq(self.freq);
             }
         }
+    }
+
+    pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize>{
+        self.handle.bulk_transfer(buf)
     }
 
     fn init(&mut self) {
