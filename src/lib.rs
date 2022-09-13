@@ -111,7 +111,7 @@ impl RtlSdr {
         } else {
             self.set_i2c_repeater(true);
             // TODO: figure out offset_freq, currently never set
-            self.tuner.set_freq(&self.handle, self.offset_freq);
+            self.tuner.set_freq(&self.handle, freq - self.offset_freq);
             self.set_i2c_repeater(false);            
         }
         self.freq = freq;
