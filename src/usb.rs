@@ -1,3 +1,4 @@
+use log::{info, warn, error};
 use rusb::{Context, DeviceHandle, Result, Error};
 use byteorder::{ByteOrder, LittleEndian, BigEndian};
 use std::time::Duration;
@@ -63,24 +64,24 @@ impl RtlSdrDeviceHandle {
         let timeout = Duration::from_secs(1);
         let languages = self.handle.read_languages(timeout)?;
     
-        println!("Active configurations: {}", self.handle.active_configuration()?);
+        info!("Active configurations: {}", self.handle.active_configuration()?);
     
         if !languages.is_empty() {
             let language = languages[0];
-            // println!("Language: {:?}", language);
+            // info!("Language: {:?}", language);
     
-            println!(
+            info!(
                 "Manufacturer: {}",
                 self.handle.read_manufacturer_string(language, &device_desc, timeout)
                 .unwrap_or("Not Found".to_string())
             );
-            println!(
+            info!(
                 "Product: {}",
                 self.handle
                     .read_product_string(language, &device_desc, timeout)
                     .unwrap_or("Not Found".to_string())
             );
-            println!(
+            info!(
                 "Serial Number: {}",
                 self.handle
                     .read_serial_number_string(language, &device_desc, timeout)
@@ -118,7 +119,7 @@ impl RtlSdrDeviceHandle {
         // try a dummy write and reset device if it fails
         let len: usize = self.write_reg(BLOCK_USB, USB_SYSCTL, 0x09, 1);
         if len == 0 {
-            println!("Resetting device...");
+            info!("Resetting device...");
             self.handle.reset();
         }
     }
@@ -178,12 +179,12 @@ impl RtlSdrDeviceHandle {
             &data
         };
         let index = (block << 8) | 0x10;
-        // println!("write_reg addr: {:x} index: {:x} data: {:x?} data slice: {}", addr, index, data, data_slice.len());
+        // info!("write_reg addr: {:x} index: {:x} data: {:x?} data slice: {}", addr, index, data, data_slice.len());
         match self.handle.write_control(
             CTRL_OUT, 0, addr, index, data_slice, CTRL_TIMEOUT) {
             Ok(n) => n,
             Err(e) => {
-                println!("write_reg failed: {} block: {block} addr: {addr} val: {val}", e);
+                error!("write_reg failed: {} block: {block} addr: {addr} val: {val}", e);
                 0
             }
         }
@@ -195,11 +196,11 @@ impl RtlSdrDeviceHandle {
         let _bytes = match self.handle.read_control(
                 CTRL_IN, 0, (addr << 8) | 0x20, index, &mut data, CTRL_TIMEOUT) {
                     Ok(n) => {
-                        // println!("demod_read_reg got {} bytes: [{:#02x}, {:#02x}] value: {:x}", n, data[0], data[1], BigEndian::read_u16(&data));
+                        // info!("demod_read_reg got {} bytes: [{:#02x}, {:#02x}] value: {:x}", n, data[0], data[1], BigEndian::read_u16(&data));
                         n
                     },
                     Err(e) => {
-                        println!("demod_read_reg failed: {} page: {:#02x} addr: {:#02x}", e, page, addr);
+                        error!("demod_read_reg failed: {} page: {:#02x} addr: {:#02x}", e, page, addr);
                         0
                     }
                 };
@@ -221,7 +222,7 @@ impl RtlSdrDeviceHandle {
             CTRL_OUT, 0, addr, index, data_slice, CTRL_TIMEOUT) {
             Ok(n) => n,
             Err(e) => {
-                println!("demod_write_reg failed: {} page: {:#02x} addr: {:#02x} val: {:#02x}", e, page, addr, val);
+                error!("demod_write_reg failed: {} page: {:#02x} addr: {:#02x} val: {:#02x}", e, page, addr, val);
                 0
             }
         };

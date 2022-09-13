@@ -1,4 +1,4 @@
-
+use log::{info, warn, error};
 use rusb::{Context, Device, DeviceHandle, Result, UsbContext, Error};
 pub mod usb;
 use usb::RtlSdrDeviceHandle;
@@ -142,18 +142,18 @@ impl RtlSdr {
     pub fn set_sample_rate(&mut self, rate: u32) {
         // Check if rate is supported by the resampler
         if rate <= 225_000 || rate > 3_200_000 || (rate > 300000 && rate <= 900000) {
-            println!("Invalid sample rate: {} Hz", rate);
+            error!("Invalid sample rate: {} Hz", rate);
             return ; // TODO: Err?
         }
 
         // Compute exact sample rate
         let rsamp_ratio = ((self.xtal as u128 * 2_u128.pow(22) / rate as u128) & 0x0ffffffc) as u128;
-        println!("set_sample_rate: rate: {}, xtal: {}, rsamp_ratio: {}", rate, self.xtal, rsamp_ratio);
+        info!("set_sample_rate: rate: {}, xtal: {}, rsamp_ratio: {}", rate, self.xtal, rsamp_ratio);
         let real_resamp_ratio = rsamp_ratio | ((rsamp_ratio & 0x08000000) << 1);
-        println!("real_resamp_ratio: {}", real_resamp_ratio);
+        info!("real_resamp_ratio: {}", real_resamp_ratio);
         let real_rate = (self.xtal as u128 * 2_u128.pow(22)) as f64 / real_resamp_ratio as f64;
         if rate as f64 != real_rate {
-            println!("Exact sample rate is {} Hz", real_rate);
+            info!("Exact sample rate is {} Hz", real_rate);
         }
         // Save exact rate
         self.rate = real_rate as u32;
@@ -239,10 +239,10 @@ impl RtlSdr {
                 // Check whether to swap I and Q ADC
                 if matches!(mode, DirectSampleMode::ON_SWAP) {
                     self.handle.demod_write_reg(0, 0x06, 0x90, 1);
-                    println!("Enabled direct sampling mode: ON (swapped)");
+                    info!("Enabled direct sampling mode: ON (swapped)");
                 } else {
                     self.handle.demod_write_reg(0, 0x06, 0x80, 1);
-                    println!("Enabled direct sampling mode: ON");
+                    info!("Enabled direct sampling mode: ON");
                 }
                 self.direct_sampling = mode;
             },
@@ -267,7 +267,7 @@ impl RtlSdr {
                 }
                 // opt_adc_iq = 0, default ADC_I/ADC_Q datapath
                 self.handle.demod_write_reg(0, 0x06, 0x80, 1);
-                println!("Disabled direct sampling mode");
+                info!("Disabled direct sampling mode");
                 self.direct_sampling = DirectSampleMode::OFF;
             },
         }
@@ -297,7 +297,7 @@ impl RtlSdr {
 
     pub fn set_xtal_freq(&mut self, rtl_freq: u32, tuner_freq: u32) {
         if rtl_freq > 0 && (rtl_freq < MIN_RTL_XTAL_FREQ || rtl_freq > MAX_RTL_XTAL_FREQ) {
-            println!("set_xtal_freq error: rtl_freq {} out of bounds", rtl_freq);
+            info!("set_xtal_freq error: rtl_freq {} out of bounds", rtl_freq);
             return ;
         }
         if rtl_freq > 0 && self.xtal != rtl_freq {
@@ -340,7 +340,7 @@ impl RtlSdr {
         self.tuner = {
             let tuner_id = match self.search_tuner() {
                 Some(tid) => {
-                    println!("Got tuner ID {}", tid);
+                    info!("Got tuner ID {}", tid);
                     tid
                 }
                 None => {
@@ -384,42 +384,42 @@ impl RtlSdr {
             self.force_ds = false;
         }
         // TODO: if(force_ds){tuner_type = TUNER_UNKNOWN}
-        println!("Init tuner");
+        info!("Init tuner");
         self.tuner.init(&self.handle);
 
         // Finished Init
         self.set_i2c_repeater(false);
-        println!("Init complete");
+        info!("Init complete");
     }
 
     fn init_baseband(&self) {
         // Init baseband
-        // println!("Initialize USB");
+        // info!("Initialize USB");
         self.handle.write_reg(usb::BLOCK_USB, usb::USB_SYSCTL, 0x09, 1);
         self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_MAXPKT, 0x0002, 2);
         self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_CTL, 0x1002, 2);
 
-        // println!("Power-on demod");
+        // info!("Power-on demod");
         self.handle.write_reg(usb::BLOCK_SYS, usb::DEMOD_CTL_1, 0x22, 1);
         self.handle.write_reg(usb::BLOCK_SYS, usb::DEMOD_CTL, 0xe8, 1);
 
-        // println!("Reset demod (bit 3, soft_rst)");
+        // info!("Reset demod (bit 3, soft_rst)");
         self.handle.reset_demod();
 
-        // println!("Disable spectrum inversion and adjust channel rejection");
+        // info!("Disable spectrum inversion and adjust channel rejection");
         self.handle.demod_write_reg(1, 0x15, 0x00, 1);
         self.handle.demod_write_reg(1, 0x16, 0x00, 2);
 
-        // println!("Clear DDC shift and IF registers");
+        // info!("Clear DDC shift and IF registers");
         for i in 0..5 {
             self.handle.demod_write_reg(1, 0x16 + i, 0x00, 1);
         }
         self.set_fir(DEFAULT_FIR);
 
-        // println!("Enable SDR mode, disable DAGC (bit 5)");
+        // info!("Enable SDR mode, disable DAGC (bit 5)");
         self.handle.demod_write_reg(0, 0x19, 0x05, 1);
 
-        // println!("Init FSM state-holding register");
+        // info!("Init FSM state-holding register");
         self.handle.demod_write_reg(1, 0x93, 0xf0, 1);
         self.handle.demod_write_reg(1, 0x94, 0x0f, 1);
 
@@ -533,16 +533,16 @@ impl RtlSdr {
     fn search_tuner(&self) -> Option<&str> {
         for tuner_info in KNOWN_TUNERS.iter() {
             let regval = self.handle.i2c_read_reg(tuner_info.i2c_addr, tuner_info.check_addr);
-            println!("Probing I2C address {:#02x} checking address {:#02x}", tuner_info.i2c_addr, tuner_info.check_addr);
+            info!("Probing I2C address {:#02x} checking address {:#02x}", tuner_info.i2c_addr, tuner_info.check_addr);
             match regval {
                 Ok(val) => {
-                    // println!("Expecting value {:#02x}, got value {:#02x}", tuner_info.check_val, val);
+                    // info!("Expecting value {:#02x}, got value {:#02x}", tuner_info.check_val, val);
                     if val == tuner_info.check_val {
                         return Some(tuner_info.id);
                     }
                 }
                 Err(e) => {
-                    println!("Reading failed, continuing. Err: {}", e);
+                    error!("Reading failed, continuing. Err: {}", e);
                 }
             };
         }

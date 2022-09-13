@@ -1,3 +1,4 @@
+use log::{info, warn, error};
 use super::{Tuner, TunerInfo, TunerGain};
 use crate::usb::RtlSdrDeviceHandle;
 
@@ -331,15 +332,11 @@ impl Tuner for R820T {
         self.xtal_cap_sel = XtalCapValue::XTAL_HIGH_CAP_0P;
 
         // Initialize registers
-        println!("Initialize registers");
         self.write_regs(handle, 0x05, &REG_INIT);
 
-        println!("Set TV Standard ");
         self.set_tv_standard(handle, 3, TunerType::TUNER_DIGITAL_TV);
-        println!("sysfreq_sel");
         self.sysfreq_sel(handle, 0, TunerType::TUNER_DIGITAL_TV, DeliverySystem::SYS_DVBT);
         self.init_done = true;
-        println!("Tuner Init complete");
     }
 
     fn get_info(&self) -> TunerInfo {
@@ -415,7 +412,9 @@ impl Tuner for R820T {
     }
 
     fn set_freq(&mut self, handle: &RtlSdrDeviceHandle, freq: u32) {
+        info!("set_freq - freq: {}", freq);
         let lo_freq = freq + self.int_freq;
+        info!("set_freq - lo_freq: {}", lo_freq);
         self.set_mux(handle, lo_freq);
         self.set_pll(handle, lo_freq);
 
@@ -561,8 +560,8 @@ impl R820T {
 
     fn set_pll(&mut self, handle: &RtlSdrDeviceHandle, freq: u32) {
         // Frequency in kHz
-        println!("freq: {}", freq);
         let freq_khz = (freq + 500) / 1000;
+        info!("freq (kHz): {}", freq_khz);
         let pll_ref = self.xtal;
         let pll_ref_khz = (self.xtal + 500) / 1000;
 
@@ -610,14 +609,14 @@ impl R820T {
         self.write_reg_mask(handle, 0x10, div_num << 5, 0xe0);
 
         let vco_freq = freq as u64 * mix_div as u64;
-        println!("vco_freq: {}", vco_freq);
+        info!("vco_freq: {}", vco_freq);
         let nint = (vco_freq / (2 * pll_ref as u64)) as u8;
-        println!("nint: {}", nint);
+        info!("nint: {}", nint);
         // VCO contribution by SDM (kHz)
         let mut vco_fra = ((vco_freq - 2 * pll_ref as u64 * nint as u64) / 1000) as u32; 
 
         if nint > ((128 / vco_power_ref) - 1) {
-            println!("[R82xx] No valid PLL values for {} Hz!", freq);
+            error!("[R82xx] No valid PLL values for {} Hz!", freq);
             // TODO: Err here
         }
         // Nint = 4 * Ni2c + Si2c + 13
@@ -626,7 +625,7 @@ impl R820T {
         // nint: 3  ni: 254 si: 254
         let ni = ((nint as i32).overflowing_sub(13).0 / 4) as u8;
         let si = (nint as i32 - 4 * ni as i32 - 13) as u8;
-        println!("ni: {}, si: {}, reg: {}", ni, si, ni.overflowing_add(si << 6).0);
+        info!("ni: {}, si: {}, reg: {}", ni, si, ni.overflowing_add(si << 6).0);
         self.write_regs(handle, 0x14, &[ni.overflowing_add(si << 6).0]);
 
         // pw_sdm
@@ -663,7 +662,7 @@ impl R820T {
             }
         }
         if (data[2] & 0x40) == 0 {
-            println!("[R82xx] PLL not locked!");
+            info!("[R82xx] PLL not locked!");
             self.has_lock = false;
             return ;
         }
@@ -840,7 +839,6 @@ impl R820T {
 
         /* Check if standard changed. If so, filter calibration is needed */
         /* Since we call this function only once in rtlsdr, force calibration */
-        println!("calibrating");
         let need_calibration = true;
         if need_calibration {
             for _ in 0..2 {
@@ -851,7 +849,6 @@ impl R820T {
                 // X'tal cap 0pF for PLL
                 self.write_reg_mask(handle, 0x10, 0x00, 0x03);
 
-                println!("set pll");
                 self.set_pll(handle, filt_cal_lo * 1000);
 
                 // Start trigger
@@ -864,17 +861,14 @@ impl R820T {
                 self.read_reg(handle, 0x00, &mut data, 5);
                 self.fil_cal_code = data[4] & 0x0f;
                 if self.fil_cal_code & self.fil_cal_code != 0x0f {
-                    println!("Calbration successful!");
                     break;
                 }
                 // Narrowest
-                println!("narrowest");
                 if self.fil_cal_code == 0x0f {
                     self.fil_cal_code = 0;
                 }
             }
         }
-        println!("filt_q");
         self.write_reg_mask(handle, 0x0a, 
             filt_q | self.fil_cal_code, 0x1f);
 
