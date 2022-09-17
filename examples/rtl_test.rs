@@ -14,7 +14,7 @@ const DEFAULT_BUF_LENGTH: usize = (16 * 16384);
 
 const FREQUENCY: u32 = 120_900_000;
 const SAMPLE_RATE: u32 = 2_048_000;
-const GAIN: rtlsdr_rs::TunerGain = rtlsdr_rs::TunerGain::AUTO;
+const GAIN: rtlsdr_rs::TunerGain = rtlsdr_rs::TunerGain::Auto;
 
 fn main() -> Result<()> {
     // Create shutdown flag and set it when ctrl-c signal caught

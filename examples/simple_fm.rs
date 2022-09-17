@@ -90,7 +90,7 @@ fn main() {
 }
 
 fn config_sdr(sdr: &mut RtlSdr, freq: u32, rate: u32) {
-    sdr.set_tuner_gain(rtlsdr_rs::TunerGain::AUTO);
+    sdr.set_tuner_gain(rtlsdr_rs::TunerGain::Auto);
     // Disable bias-tee
     sdr.set_bias_tee(false);
     // Reset the endpoint before we try to read from it (mandatory)
