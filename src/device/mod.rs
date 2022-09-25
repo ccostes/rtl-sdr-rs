@@ -10,7 +10,7 @@ use device_handle_box::*;
 /// Low-level io functions for interfacing with rusb(libusb)
 use log::{info, error};
 use rusb::{Context, UsbContext};
-use byteorder::{ByteOrder, BigEndian};
+use byteorder::{ByteOrder, LittleEndian};
 use std::time::Duration;
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
@@ -21,8 +21,7 @@ use mockall::predicate::*;
 // use mockall::*;
 // use mockall::predicate::*;
 #[cfg(test)]
-#[path = "usb_test.rs"]
-mod usb_test;
+mod device_test;
 
 #[automock]
 pub trait Device {
@@ -110,7 +109,7 @@ impl Device for RealDevice {
         let mut data: [u8;2] = [0,0];
         let index: u16 = block << 8;
         self.handle.read_control(CTRL_IN, 0, addr, index, &mut data[..len], CTRL_TIMEOUT)?;
-        Ok(BigEndian::read_u16(&data))
+        Ok(LittleEndian::read_u16(&data))
     }
 
     fn write_reg(&self, block: u16, addr: u16, val: u16, len: usize) -> Result<usize> {
@@ -139,7 +138,7 @@ impl Device for RealDevice {
                         Err(e)
                     }
                 };
-        let reg: u16 = BigEndian::read_u16(&data);
+        let reg: u16 = LittleEndian::read_u16(&data);
         Ok(reg)
     }
 
