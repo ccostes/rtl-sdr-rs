@@ -1,13 +1,16 @@
 //! # rtlsdr Library
 //! Library for interfacing with an RTL-SDR device.
+#[cfg(test)]
+pub mod lib_tests;
 
 use log::{info, error};
-use rusb::{Context, Device, DeviceHandle, UsbContext};
+// use rusb::{Context, Device, DeviceHandle, UsbContext};
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
-pub mod usb;
+pub mod device;
 pub mod error;
-use usb::RtlSdrDeviceHandle;
+use device::*;
+use device::device_box::*;
 
 mod tuners;
 use tuners::*;
@@ -42,7 +45,7 @@ pub enum DirectSampleMode {
 
 #[derive(Debug)]
 pub struct RtlSdr {
-    handle: RtlSdrDeviceHandle,
+    handle: DeviceBox,
     tuner: Box<dyn Tuner>,
     freq: u32,                  // Hz
     rate: u32,                  // Hz
@@ -59,13 +62,9 @@ pub struct RtlSdr {
 }
 
 impl RtlSdr {
-    pub fn open() -> Result<RtlSdr> {
-        let mut context = Context::new().unwrap();
-        let (_device, handle) = 
-            open_device(&mut context, VID, PID)?;
-        
+    pub fn open(index: usize) -> Result<RtlSdr> {
         let mut sdr = RtlSdr { 
-            handle: RtlSdrDeviceHandle::new(handle),
+            handle: init_device(device::DeviceType::Real, 0)?,
             tuner: Box::new(NoTuner{}),
             freq: 0,
             rate: 0,
@@ -104,8 +103,8 @@ impl RtlSdr {
     // TODO: set_bias_tee
 
     pub fn reset_buffer(&self) -> Result<()> {
-        self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_CTL, 0x1002, 2)?;
-        self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_CTL, 0x0000, 2)?;
+        self.handle.write_reg(device::BLOCK_USB, device::USB_EPA_CTL, 0x1002, 2)?;
+        self.handle.write_reg(device::BLOCK_USB, device::USB_EPA_CTL, 0x0000, 2)?;
         Ok(())
     }
 
@@ -399,8 +398,8 @@ impl RtlSdr {
         self.handle.demod_write_reg(1, 0x15, 0x01, 1)?;
 
         // Hack to force the Bias T to always be on if we set the IR-Endpoint bit in the EEPROM to 0. Default on EEPROM is 1.
-        let mut buf:[u8; usb::EEPROM_SIZE] = [0;usb::EEPROM_SIZE];
-        self.handle.read_eeprom(&buf, 0, usb::EEPROM_SIZE)?;
+        let mut buf:[u8; device::EEPROM_SIZE] = [0;device::EEPROM_SIZE];
+        self.handle.read_eeprom(&buf, 0, device::EEPROM_SIZE)?;
         if buf[7] & 0x02 != 0 {
             self.force_bt = false;
         } else {
@@ -425,13 +424,13 @@ impl RtlSdr {
     fn init_baseband(&self) -> Result<()> {
         // Init baseband
         // info!("Initialize USB");
-        self.handle.write_reg(usb::BLOCK_USB, usb::USB_SYSCTL, 0x09, 1)?;
-        self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_MAXPKT, 0x0002, 2)?;
-        self.handle.write_reg(usb::BLOCK_USB, usb::USB_EPA_CTL, 0x1002, 2)?;
+        self.handle.write_reg(device::BLOCK_USB, device::USB_SYSCTL, 0x09, 1)?;
+        self.handle.write_reg(device::BLOCK_USB, device::USB_EPA_MAXPKT, 0x0002, 2)?;
+        self.handle.write_reg(device::BLOCK_USB, device::USB_EPA_CTL, 0x1002, 2)?;
 
         // info!("Power-on demod");
-        self.handle.write_reg(usb::BLOCK_SYS, usb::DEMOD_CTL_1, 0x22, 1)?;
-        self.handle.write_reg(usb::BLOCK_SYS, usb::DEMOD_CTL, 0xe8, 1)?;
+        self.handle.write_reg(device::BLOCK_SYS, device::DEMOD_CTL_1, 0x22, 1)?;
+        self.handle.write_reg(device::BLOCK_SYS, device::DEMOD_CTL, 0xe8, 1)?;
 
         // info!("Reset demod (bit 3, soft_rst)");
         self.handle.reset_demod()?;
@@ -481,7 +480,7 @@ impl RtlSdr {
         self.set_i2c_repeater(false)?;
 
         // Power-off demodulator and ADCs
-        self.handle.write_reg(usb::BLOCK_SYS, usb::DEMOD_CTL, 0x20, 1)?;
+        self.handle.write_reg(device::BLOCK_SYS, device::DEMOD_CTL, 0x20, 1)?;
         Ok(())
     }
 
@@ -504,23 +503,23 @@ impl RtlSdr {
     fn set_gpio_bit(&self, mut gpio: u8, val: bool) -> Result<()> {
         let mut r: u16 = 0;
         gpio = 1 << gpio;
-        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPO, 1)?;
+        r = self.handle.read_reg(device::BLOCK_SYS, device::GPO, 1)?;
         r = if val {
             r | gpio as u16
         } else {
             r & !gpio as u16
         };
-        self.handle.write_reg(usb::BLOCK_SYS, usb::GPO, r, 1)?;
+        self.handle.write_reg(device::BLOCK_SYS, device::GPO, r, 1)?;
         Ok(())
     }
 
     fn set_gpio_output(&self, mut gpio: u8) -> Result<()> {
         gpio = 1 << gpio;
         let mut r = 0;
-        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPD, 1)?;
-        self.handle.write_reg(usb::BLOCK_SYS, usb::GPD, r & !gpio as u16, 1)?;
-        r = self.handle.read_reg(usb::BLOCK_SYS, usb::GPOE, 1)?;
-        self.handle.write_reg(usb::BLOCK_SYS, usb::GPOE, r | gpio as u16, 1)?;
+        r = self.handle.read_reg(device::BLOCK_SYS, device::GPD, 1)?;
+        self.handle.write_reg(device::BLOCK_SYS, device::GPD, r & !gpio as u16, 1)?;
+        r = self.handle.read_reg(device::BLOCK_SYS, device::GPOE, 1)?;
+        self.handle.write_reg(device::BLOCK_SYS, device::GPOE, r | gpio as u16, 1)?;
         Ok(())
     }
 
@@ -586,24 +585,4 @@ impl RtlSdr {
         }
         None
     }
-}
-
-fn open_device<T: UsbContext> (
-    context: &mut T,
-    vid: u16,
-    pid: u16,
-) -> Result<(Device<T>, DeviceHandle<T>)> {
-    let devices = context.devices().map(|d| d)?;
-
-    for device in devices.iter() {
-        let device_desc = device.device_descriptor().map(|d| d)?;
-        
-        if device_desc.vendor_id() == vid && device_desc.product_id() == pid {
-            match device.open() {
-                Ok(handle) => return Ok((device, handle)),
-                Err(_) => continue,
-            }
-        }
-    }
-    Err(RtlsdrErr(format!("No device found for vid: {} pid: {}", vid, pid)))
 }

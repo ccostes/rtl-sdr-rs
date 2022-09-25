@@ -1,6 +1,6 @@
 use log::{info};
 use super::{Tuner, TunerInfo, TunerGain};
-use crate::usb::RtlSdrDeviceHandle;
+use crate::device::Device;
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
 
@@ -307,7 +307,7 @@ pub const TUNER_INFO: TunerInfo = TunerInfo {
 };
 
 impl R820T {
-    pub fn new(handle: &mut RtlSdrDeviceHandle) -> R820T {
+    pub fn new(handle: &mut dyn Device) -> R820T {
         let mut tuner = R820T { 
             info: TUNER_INFO, 
             regs: REG_INIT,
@@ -326,7 +326,7 @@ impl R820T {
     
 impl Tuner for R820T {
     // Combined from r820t_init and r82xx_init
-    fn init(&mut self, handle: &RtlSdrDeviceHandle) -> Result<()> {
+    fn init(&mut self, handle: &dyn Device) -> Result<()> {
         // TODO: set different I2C address and rafael_chip for R828D
         self.use_predetect = false;
 
@@ -350,14 +350,14 @@ impl Tuner for R820T {
         Ok(GAINS.to_vec())
     }
 
-    fn read_gain(&self, handle: &RtlSdrDeviceHandle) -> Result<i32> {
+    fn read_gain(&self, handle: &dyn Device) -> Result<i32> {
         let mut data: [u8; 4] = [0;4];
         self.read_reg(handle, 0x00, &mut data, 4)?;
         let gain = ((data[3] & 0x0f) << 1) + ((data[3] & 0xf0) >> 4);
         Ok(gain as i32)
     }
 
-    fn set_gain(&mut self, handle: &RtlSdrDeviceHandle, mode: TunerGain) -> Result<()> {
+    fn set_gain(&mut self, handle: &dyn Device, mode: TunerGain) -> Result<()> {
         match mode {
             TunerGain::Auto => {
                 // LNA
@@ -415,7 +415,7 @@ impl Tuner for R820T {
         Ok(())
     }
 
-    fn set_freq(&mut self, handle: &RtlSdrDeviceHandle, freq: u32) -> Result<()> {
+    fn set_freq(&mut self, handle: &dyn Device, freq: u32) -> Result<()> {
         info!("set_freq - freq: {}", freq);
         let lo_freq = freq + self.int_freq;
         info!("set_freq - lo_freq: {}", lo_freq);
@@ -426,7 +426,7 @@ impl Tuner for R820T {
         Ok(())
     }
 
-    fn set_bandwidth(&mut self, handle: &RtlSdrDeviceHandle, bw_in: u32, _rate: u32) -> Result<()> {
+    fn set_bandwidth(&mut self, handle: &dyn Device, bw_in: u32, _rate: u32) -> Result<()> {
         let mut bw: i32 = bw_in as i32;
         const FILT_HP_BW1: i32 = 350_000;
         const FILT_HP_BW2: i32 = 380_000;
@@ -511,7 +511,7 @@ impl Tuner for R820T {
         Ok(())
     }
 
-    fn exit(&mut self, handle: &RtlSdrDeviceHandle) -> Result<()> {
+    fn exit(&mut self, handle: &dyn Device) -> Result<()> {
         // If device was not initialized yet don't need to standby
         if !self.init_done {
             return Ok(());
@@ -534,7 +534,7 @@ impl Tuner for R820T {
 impl R820T {
     // Tuning logic
 
-    fn set_mux(&mut self, handle: &RtlSdrDeviceHandle, freq: u32) -> Result<()> {
+    fn set_mux(&mut self, handle: &dyn Device, freq: u32) -> Result<()> {
         // Get the proper frequency range
         let freq_mhz = freq / 1_000_000;
         // Find the range that freq is within
@@ -581,7 +581,7 @@ impl R820T {
         Ok(())
     }
 
-    fn set_pll(&mut self, handle: &RtlSdrDeviceHandle, freq: u32) -> Result<()> {
+    fn set_pll(&mut self, handle: &dyn Device, freq: u32) -> Result<()> {
         // Frequency in kHz
         let freq_khz = (freq + 500) / 1000;
         info!("freq (kHz): {}", freq_khz);
@@ -696,7 +696,7 @@ impl R820T {
         Ok(())
     }
 
-    fn sysfreq_sel(&mut self, handle: &RtlSdrDeviceHandle, freq: u32, tuner_type: TunerType, delivery_system: DeliverySystem) -> Result<()> {
+    fn sysfreq_sel(&mut self, handle: &dyn Device, freq: u32, tuner_type: TunerType, delivery_system: DeliverySystem) -> Result<()> {
         let mixer_top;
         let lna_top;
         let cp_cur;
@@ -831,7 +831,7 @@ impl R820T {
         Ok(())
     }
 
-    fn set_tv_standard(&mut self, handle: &RtlSdrDeviceHandle, _bw: u32, tuner_type: TunerType) -> Result<()> {
+    fn set_tv_standard(&mut self, handle: &dyn Device, _bw: u32, tuner_type: TunerType) -> Result<()> {
 
         /* BW < 6 MHz */
         let if_khz = 3570;
@@ -924,7 +924,7 @@ impl R820T {
         Ok(())
     }
 
-    fn _xtal_check(&mut self, handle: &RtlSdrDeviceHandle) -> Result<u8> {
+    fn _xtal_check(&mut self, handle: &dyn Device) -> Result<u8> {
         let mut data: [u8;3] = [0;3];
         
         // Initialize register cache
@@ -959,7 +959,7 @@ impl R820T {
     }
     
     /// Write register with bit-masked data
-    fn write_reg_mask(&mut self, handle: &RtlSdrDeviceHandle, reg: usize, val: u8, bit_mask: u8) -> Result<()> {
+    fn write_reg_mask(&mut self, handle: &dyn Device, reg: usize, val: u8, bit_mask: u8) -> Result<()> {
         let rc = self.read_cache_reg(reg);
         // Compute the desired register value: (rc & !mask) gets the unmasked bits and leaves the masked as 0,
         // and (val & mask) gets just the masked bits we want to set. Or together to get the desired register.
@@ -979,7 +979,7 @@ impl R820T {
     }
     
     /// Write data to device registers (r82xx_write)
-    fn write_regs(&mut self, handle: &RtlSdrDeviceHandle, reg: usize, val: &[u8]) -> Result<()> {
+    fn write_regs(&mut self, handle: &dyn Device, reg: usize, val: &[u8]) -> Result<()> {
         // Store write in local cache
         self.reg_cache_store(reg, val);
         
@@ -1005,7 +1005,7 @@ impl R820T {
     }
 
     // (r82xx_read)
-    fn read_reg(&self, handle: &RtlSdrDeviceHandle, reg: usize, buf: &mut[u8], len: u8) -> Result<()> {
+    fn read_reg(&self, handle: &dyn Device, reg: usize, buf: &mut[u8], len: u8) -> Result<()> {
         assert!(buf.len() >= len as usize);
         handle.i2c_write(R820T_I2C_ADDR, &[reg as u8])?;
         handle.i2c_read(R820T_I2C_ADDR, buf, len)?;
