@@ -39,7 +39,7 @@ fn main() {
 
     if !READ_FROM_FILE {
         // Open device
-        let mut sdr = RtlSdr::open();
+        let mut sdr = RtlSdr::open(0).expect("Failed to open device");
         // Get settings
         let (freq, rate ) = demod.optimal_settings(DEFAULT_FREQUENCY, SAMPLE_RATE);
         // Config receiver
@@ -61,11 +61,13 @@ fn main() {
             let n = sdr.read_sync(&mut *buf);
             if n.is_err() {
                 info!("Read error: {:#?}", n);
-            } else if n.unwrap() < DEFAULT_BUF_LENGTH {
-                info!("Short read ({:#?}), samples lost, exiting!", n);
+                break;
+            } 
+            let len = n.unwrap();
+            if len < DEFAULT_BUF_LENGTH {
+                info!("Short read ({:#?}), samples lost, exiting!", len);
                 break;
             }
-            let len = n.unwrap();
             demod.receive(&mut *buf, len);
             demod.output();
         }
