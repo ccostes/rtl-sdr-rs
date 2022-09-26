@@ -105,14 +105,19 @@ impl Device for RealDevice {
         Ok(())
     }
 
+    /// TODO: This only supports len of 1 or 2, maybe use an enum or make this generic?
     fn read_reg(&self, block: u16, addr: u16, len: usize) -> Result<u16> {
+        assert!(len == 1 || len == 2);
         let mut data: [u8;2] = [0,0];
         let index: u16 = block << 8;
         self.handle.read_control(CTRL_IN, 0, addr, index, &mut data[..len], CTRL_TIMEOUT)?;
+        // Read registers as little endian, but write as big; not sure why
         Ok(LittleEndian::read_u16(&data))
     }
 
     fn write_reg(&self, block: u16, addr: u16, val: u16, len: usize) -> Result<usize> {
+        assert!(len == 1 || len == 2);
+        // Read registers as little endian, but write as big; not sure why
         let data: [u8; 2] = val.to_be_bytes();
         let data_slice = if len == 1 {
             &data[1..2]
@@ -124,8 +129,9 @@ impl Device for RealDevice {
         Ok(self.handle.write_control(CTRL_OUT, 0, addr, index, data_slice, CTRL_TIMEOUT)?)
     }
 
+    /// Only supports u8 reads
     fn demod_read_reg(&self, page: u16, addr: u16) -> Result<u16> {
-        let mut data: [u8; 2] = [0, 0];
+        let mut data = [0_u8];
         let index = page;
         let _bytes = match self.handle.read_control(
                 CTRL_IN, 0, (addr << 8) | 0x20, index, &mut data, CTRL_TIMEOUT) {
@@ -138,11 +144,13 @@ impl Device for RealDevice {
                         Err(e)
                     }
                 };
-        let reg: u16 = LittleEndian::read_u16(&data);
+        let reg: u16 = data[0] as u16;
         Ok(reg)
     }
 
+    /// TODO: only supports len of 1 or 2, maybe use enum or make this generic
     fn demod_write_reg(&self, page: u16, mut addr: u16, val: u16, len: usize) -> Result<usize> {
+        assert!(len == 1 || len == 2);
         let index = 0x10 | page;
         addr = (addr << 8) | 0x20; 
         let data: [u8; 2] = val.to_be_bytes();
