@@ -18,8 +18,6 @@ use crate::error::RtlsdrError::RtlsdrErr;
 use mockall::*;
 use mockall::predicate::*;
 
-// use mockall::*;
-// use mockall::predicate::*;
 #[cfg(test)]
 mod device_test;
 

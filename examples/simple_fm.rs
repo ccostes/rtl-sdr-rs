@@ -1,6 +1,6 @@
 /// Simple FM demodulator example with hard-coded params. Single-
 /// threaded using synchronous reads, so intended for instructional
-/// purposes rather than performance. Should work like the original
+/// purposes rather than performance. Works like the original
 /// rtl_fm outputting raw audio data that can be piped to sox play.
 /// 
 /// Can also read data from a file instead of real rtl-sdr device by
@@ -29,6 +29,7 @@ const MAXIMUM_OVERSAMPLE: usize = 16;
 const MAXIMUM_BUF_LENGTH: usize = (MAXIMUM_OVERSAMPLE * DEFAULT_BUF_LENGTH);
 
 fn main() {
+    // Can't print to stdout (that will break audio output) so use this to log to stderr
     stderrlog::new().verbosity(log::Level::Info).init().unwrap();
 
     // Create shutdown flag and set it when ctrl-c signal caught
