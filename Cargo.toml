@@ -1,0 +1,19 @@
+[package]
+name = "rtlsdr-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rusb = "0.9"
+byteorder = "1"
+log = "0.4"
+mockall = "0.11"
+
+[dev-dependencies]
+rusb = "0.9"
+byteorder = "1"
+ctrlc = "3.2.3"
+num-complex = "0.4"
+stderrlog = "0.5"
