@@ -300,10 +300,11 @@ impl RtlSdr {
         Ok(())
     }
     
-    // RTL-SDR-BLOG Hack, enables us to turn on the bias tee by clicking on "offset tuning" 
     pub fn set_offset_tuning(&self, enable: bool) -> Result<()> {
+        // RTL-SDR-BLOG Hack, enables us to turn on the bias tee by clicking on "offset tuning" 
         // in software that doesn't have specified bias tee support.
         // Offset tuning is not used for R820T devices so it is no problem.
+        #[cfg(feature = "rtl_sdr_blog")]
         self.set_gpio(0, enable)?;
 
         // TODO: implement the rest when we support tuners beyond R82xx

@@ -595,7 +595,10 @@ impl R820T {
         self.write_reg_mask(handle, 0x1a, 0x00, 0x0c)?;
 
         // Set VCO current = 100 (RTL-SDR Blog Mod: MAX CURRENT)
+        #[cfg(feature="rtl_sdr_blog")]
         self.write_reg_mask(handle, 0x12, 0x06, 0xff)?;
+        #[cfg(not(feature="rtl_sdr_blog"))]
+        self.write_reg_mask(handle, 0x12, 0x80, 0xe0)?;
 
         // Test turning tracking filter off
         // self.write_reg_mask(handle, 0x1a, 0x40, 0xc0);
@@ -681,7 +684,10 @@ impl R820T {
             }
             if i == 0 {
                 // Didn't lock, increase VCO current
+               #[cfg(feature="rtl_sdr_blog")]
                self.write_reg_mask(handle, 0x12, 0x06, 0xff)?;
+               #[cfg(not(feature="rtl_sdr_blog"))]
+               self.write_reg_mask(handle, 0x12, 0x80, 0xe0)?;
             }
         }
         if (data[2] & 0x40) == 0 {
@@ -782,7 +788,10 @@ impl R820T {
         self.write_reg_mask(handle, 0x11, cp_cur, 0x38)?;
         
         // RTLSDRBLOG. Improve L-band performance by setting PLL drop out to 2.0v
-        div_buf_cur = 0xa0;
+        #[cfg(feature="rtl_sdr_blog")]{
+            div_buf_cur = 0xa0;
+        }
+
         self.write_reg_mask(handle, 0x17, div_buf_cur, 0x30)?;
         self.write_reg_mask(handle, 0x0a, filter_cur, 0x60)?;
 
