@@ -1,17 +1,47 @@
-use super::*;
+use std::time::Duration;
 
-pub struct RealDeviceHandle {
-    pub(crate) handle: rusb::DeviceHandle<Context>
+use rusb::{Context, UsbContext};
+use crate::error::Result;
+use crate::error::RtlsdrError::RtlsdrErr;
+
+use super::KNOWN_DEVICES;
+
+#[derive(Debug)]
+pub struct DeviceHandle {
+    handle: rusb::DeviceHandle<Context>
 }
-impl DeviceHandle for RealDeviceHandle {
-    fn claim_interface(&mut self, iface: u8) -> Result<()> {
+impl DeviceHandle {
+    pub fn open(index: usize) -> Result<Self> {
+        let mut context = Context::new()?;
+        let mut handle = DeviceHandle::open_device(&mut context, index)?;
+        Ok(DeviceHandle{handle: handle})
+    }
+    
+    pub fn open_device<T: UsbContext> (
+        context: &mut T,
+        index: usize,
+    ) -> Result<rusb::DeviceHandle<T>> {
+        let devices = context.devices().map(|d| d)?;
+    
+        let device = for found in devices.iter() {
+            let device_desc = found.device_descriptor().map(|d| d)?;
+            for dev in KNOWN_DEVICES.iter() {
+                if device_desc.vendor_id() == dev.vid && device_desc.product_id() == dev.pid {
+                    return Ok(found.open()?)
+                }
+            }
+        };
+        Err(RtlsdrErr(format!("No device found")))
+    }
+
+    pub fn claim_interface(&mut self, iface: u8) -> Result<()> {
         Ok(self.handle.claim_interface(iface)?)
     }
-    fn reset(&mut self) -> Result<()> {
+    pub fn reset(&mut self) -> Result<()> {
         Ok(self.handle.reset()?)
     }
 
-    fn read_control(
+    pub fn read_control(
         &self,
         request_type: u8,
         request: u8,
@@ -23,7 +53,7 @@ impl DeviceHandle for RealDeviceHandle {
         Ok(self.handle.read_control(request_type, request, value, index, buf, timeout)?)
     }
 
-    fn write_control(
+    pub fn write_control(
         &self,
         request_type: u8,
         request: u8,
@@ -35,7 +65,7 @@ impl DeviceHandle for RealDeviceHandle {
         Ok(self.handle.write_control(request_type, request, value, index, buf, timeout)?)
     }
 
-    fn read_bulk(
+    pub fn read_bulk(
         &self,
         endpoint: u8,
         buf: &mut [u8],

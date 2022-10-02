@@ -10,7 +10,6 @@ use crate::error::RtlsdrError::RtlsdrErr;
 pub mod device;
 pub mod error;
 use device::*;
-use device::device_box::*;
 
 mod tuners;
 use tuners::*;
@@ -45,7 +44,7 @@ pub enum DirectSampleMode {
 
 #[derive(Debug)]
 pub struct RtlSdr {
-    handle: DeviceBox,
+    handle: Device,
     tuner: Box<dyn Tuner>,
     freq: u32,                  // Hz
     rate: u32,                  // Hz
@@ -64,7 +63,7 @@ pub struct RtlSdr {
 impl RtlSdr {
     pub fn open(index: usize) -> Result<RtlSdr> {
         let mut sdr = RtlSdr { 
-            handle: init_device(device::DeviceType::Real, 0)?,
+            handle: Device::new(index)?,
             tuner: Box::new(NoTuner{}),
             freq: 0,
             rate: 0,
@@ -476,7 +475,7 @@ impl RtlSdr {
     fn deinit_baseband(&mut self) -> Result<()> {
         // Deinitialize tuner
         self.set_i2c_repeater(true)?;
-        self.tuner.exit(&mut self.handle)?;
+        self.tuner.exit(&self.handle)?;
         self.set_i2c_repeater(false)?;
 
         // Power-off demodulator and ADCs

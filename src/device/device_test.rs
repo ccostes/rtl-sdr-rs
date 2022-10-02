@@ -1,8 +1,9 @@
 use mockall::predicate::{self, eq};
 
-use crate::device::{MockDeviceHandle, RealDevice, DeviceHandleBox, EEPROM_SIZE};
+use crate::device::{Device, EEPROM_SIZE};
+use crate::device::mock_device_handle::MockDeviceHandle;
 
-use super::{Device, BLOCK_SYS, GPO, CTRL_IN, CTRL_OUT, CTRL_TIMEOUT};
+use super::{BLOCK_SYS, GPO, CTRL_IN, CTRL_OUT, CTRL_TIMEOUT};
 
 #[test]
 fn test_read_reg_u8() {
@@ -20,8 +21,7 @@ fn test_read_reg_u8() {
             data[0] = data_expected as u8;
             Ok(1)
         });
-    let device = RealDevice{
-        handle: DeviceHandleBox(Box::new(mock_handle))};
+    let device = Device{handle: mock_handle};
     let result = device.read_reg(block, addr, 1).unwrap();
     assert_eq!(data_expected, result);
 }
@@ -42,8 +42,7 @@ fn test_read_reg_u16() {
             data[1] = data_expected[1];
             Ok(2)
         });
-    let device = RealDevice{
-        handle: DeviceHandleBox(Box::new(mock_handle))};
+    let device = Device{handle: mock_handle};
     let result = device.read_reg(block, addr, 2).unwrap();
     assert_eq!(u16::from_be_bytes(data_expected), result);
 }
@@ -64,8 +63,7 @@ fn test_write_reg_u8() {
             assert_eq!(data[0], data_expected as u8);
             Ok(1)
         });
-    let device = RealDevice{
-        handle: DeviceHandleBox(Box::new(mock_handle))};
+    let device = Device{handle: mock_handle};
     let result = device.write_reg(block, addr, data_expected, 1).unwrap();
     assert_eq!(1, result);
 }
@@ -86,8 +84,7 @@ fn test_write_reg_u16() {
             assert_eq!(data, data_expected.to_be_bytes());
             Ok(1)
         });
-    let device = RealDevice{
-        handle: DeviceHandleBox(Box::new(mock_handle))};
+    let device = Device{handle: mock_handle};
     let result = device.write_reg(block, addr, data_expected, 2).unwrap();
     assert_eq!(1, result);
 }
@@ -106,8 +103,7 @@ fn test_demod_read_reg() {
             data[0] = value;
             Ok(2)
         });
-    let device = RealDevice{
-        handle: DeviceHandleBox(Box::new(mock_handle))};
+    let device = Device{handle: mock_handle};
     let result = device.demod_read_reg(page, addr).unwrap();
     assert_eq!(value as u16, result);
 }
@@ -116,8 +112,7 @@ fn test_demod_read_reg() {
 #[should_panic]
 fn test_read_eeprom_out_of_range(){
     let mock_handle = MockDeviceHandle::new();
-    let device = RealDevice{
-        handle: DeviceHandleBox(Box::new(mock_handle))};
+    let device = Device{handle: mock_handle};
     let data = [0;5];
     // Try to read more than eeprom size - should panic
     device.read_eeprom(&data, 0, EEPROM_SIZE).unwrap();
