@@ -1,6 +1,7 @@
 pub mod r820t;
 use crate::error::Result;
-use super::*;
+use crate::device::{Device};
+use crate::TunerGain;
 
 pub const KNOWN_TUNERS: [TunerInfo; 1] = [r820t::TUNER_INFO];
 
