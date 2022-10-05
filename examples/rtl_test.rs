@@ -1,7 +1,6 @@
 use ctrlc;
+use rtlsdr_rs::{error::Result, RtlSdr};
 use std::sync::atomic::{AtomicBool, Ordering};
-use rtlsdr_rs::{RtlSdr, error::Result};
-
 
 enum TestMode {
     NO_BENCHMARK,
@@ -15,14 +14,23 @@ const SAMPLE_RATE: u32 = 2_048_000;
 fn main() -> Result<()> {
     // Create shutdown flag and set it when ctrl-c signal caught
     static shutdown: AtomicBool = AtomicBool::new(false);
-    ctrlc::set_handler(|| {shutdown.swap(true, Ordering::Relaxed);} );
+    ctrlc::set_handler(|| {
+        shutdown.swap(true, Ordering::Relaxed);
+    });
 
     // Open device
     let mut sdr = RtlSdr::open(0).expect("Unable to open SDR device!");
     // println!("{:#?}", sdr);
 
     let gains = sdr.get_tuner_gains()?;
-    println!("Supported gain values ({}): {:?}", gains.len(), gains.iter().map(|g| {*g as f32 / 10.0}).collect::<Vec<_>>());
+    println!(
+        "Supported gain values ({}): {:?}",
+        gains.len(),
+        gains
+            .iter()
+            .map(|g| { *g as f32 / 10.0 })
+            .collect::<Vec<_>>()
+    );
 
     // Set sample rate
     sdr.set_sample_rate(SAMPLE_RATE)?;
@@ -37,7 +45,7 @@ fn main() -> Result<()> {
     sdr.reset_buffer()?;
 
     println!("Reading samples in sync mode...");
-        let mut buf: [u8; DEFAULT_BUF_LENGTH] = [0; DEFAULT_BUF_LENGTH];
+    let mut buf: [u8; DEFAULT_BUF_LENGTH] = [0; DEFAULT_BUF_LENGTH];
     loop {
         if shutdown.load(Ordering::Relaxed) {
             break;

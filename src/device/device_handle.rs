@@ -1,33 +1,33 @@
 use std::time::Duration;
 
-use rusb::{Context, UsbContext};
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
+use rusb::{Context, UsbContext};
 
 use super::KNOWN_DEVICES;
 
 #[derive(Debug)]
 pub struct DeviceHandle {
-    handle: rusb::DeviceHandle<Context>
+    handle: rusb::DeviceHandle<Context>,
 }
 impl DeviceHandle {
     pub fn open(index: usize) -> Result<Self> {
         let mut context = Context::new()?;
         let mut handle = DeviceHandle::open_device(&mut context, index)?;
-        Ok(DeviceHandle{handle: handle})
+        Ok(DeviceHandle { handle: handle })
     }
-    
-    pub fn open_device<T: UsbContext> (
+
+    pub fn open_device<T: UsbContext>(
         context: &mut T,
         index: usize,
     ) -> Result<rusb::DeviceHandle<T>> {
         let devices = context.devices().map(|d| d)?;
-    
+
         let device = for found in devices.iter() {
             let device_desc = found.device_descriptor().map(|d| d)?;
             for dev in KNOWN_DEVICES.iter() {
                 if device_desc.vendor_id() == dev.vid && device_desc.product_id() == dev.pid {
-                    return Ok(found.open()?)
+                    return Ok(found.open()?);
                 }
             }
         };
@@ -50,7 +50,9 @@ impl DeviceHandle {
         buf: &mut [u8],
         timeout: Duration,
     ) -> Result<usize> {
-        Ok(self.handle.read_control(request_type, request, value, index, buf, timeout)?)
+        Ok(self
+            .handle
+            .read_control(request_type, request, value, index, buf, timeout)?)
     }
 
     pub fn write_control(
@@ -62,15 +64,12 @@ impl DeviceHandle {
         buf: &[u8],
         timeout: Duration,
     ) -> Result<usize> {
-        Ok(self.handle.write_control(request_type, request, value, index, buf, timeout)?)
+        Ok(self
+            .handle
+            .write_control(request_type, request, value, index, buf, timeout)?)
     }
 
-    pub fn read_bulk(
-        &self,
-        endpoint: u8,
-        buf: &mut [u8],
-        timeout: Duration,
-    ) -> Result<usize> {
+    pub fn read_bulk(&self, endpoint: u8, buf: &mut [u8], timeout: Duration) -> Result<usize> {
         Ok(self.handle.read_bulk(endpoint, buf, timeout)?)
     }
 }

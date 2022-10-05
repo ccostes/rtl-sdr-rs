@@ -1,14 +1,14 @@
 //! # rtlsdr Library
 //! Library for interfacing with an RTL-SDR device.
 
-mod rtlsdr;
-mod tuners;
 mod device;
 pub mod error;
+mod rtlsdr;
+mod tuners;
 
 use device::Device;
-use rtlsdr::{RtlSdr as Sdr};
 use error::Result;
+use rtlsdr::RtlSdr as Sdr;
 
 pub const DEFAULT_BUF_LENGTH: usize = 16 * 16384;
 
@@ -21,7 +21,7 @@ pub enum TunerGain {
 pub enum DirectSampleMode {
     Off,
     On,
-    OnSwap,    // Swap I and Q ADC, allowing to select between two inputs
+    OnSwap, // Swap I and Q ADC, allowing to select between two inputs
 }
 
 pub struct RtlSdr {
@@ -32,7 +32,7 @@ impl RtlSdr {
         let dev = Device::new(index)?;
         let mut sdr = Sdr::new(dev);
         sdr.init()?;
-        Ok(RtlSdr{sdr: sdr})
+        Ok(RtlSdr { sdr: sdr })
     }
     pub fn close(&mut self) -> Result<()> {
         // TODO: wait until async is inactive
@@ -41,7 +41,7 @@ impl RtlSdr {
     pub fn reset_buffer(&self) -> Result<()> {
         self.sdr.reset_buffer()
     }
-    pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize>{
+    pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize> {
         self.sdr.read_sync(buf)
     }
     pub fn get_center_freq(&self) -> u32 {

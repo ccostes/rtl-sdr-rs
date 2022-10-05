@@ -1,36 +1,39 @@
-use log::{info, error};
-use super::{TunerGain, DirectSampleMode};
+use super::{DirectSampleMode, TunerGain};
+use crate::device::{
+    Device, BLOCK_SYS, BLOCK_USB, DEMOD_CTL, DEMOD_CTL_1, EEPROM_SIZE, GPD, GPO, GPOE, USB_EPA_CTL,
+    USB_EPA_MAXPKT, USB_SYSCTL,
+};
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
-use crate::device::{Device, EEPROM_SIZE, BLOCK_USB, BLOCK_SYS, USB_SYSCTL, USB_EPA_MAXPKT, USB_EPA_CTL, DEMOD_CTL, DEMOD_CTL_1, GPO, GPOE, GPD};
-use crate::tuners::{Tuner, NoTuner, KNOWN_TUNERS};
-use crate::tuners::r820t::{R820T, TUNER_ID, R82XX_IF_FREQ};
+use crate::tuners::r820t::{R820T, R82XX_IF_FREQ, TUNER_ID};
+use crate::tuners::{NoTuner, Tuner, KNOWN_TUNERS};
+use log::{error, info};
 
 const INTERFACE_ID: u8 = 0;
 
-const DEF_RTL_XTAL_FREQ: u32 =	28_800_000;
-const MIN_RTL_XTAL_FREQ: u32 =	DEF_RTL_XTAL_FREQ - 1000;
-const MAX_RTL_XTAL_FREQ: u32 =	DEF_RTL_XTAL_FREQ + 1000;
+const DEF_RTL_XTAL_FREQ: u32 = 28_800_000;
+const MIN_RTL_XTAL_FREQ: u32 = DEF_RTL_XTAL_FREQ - 1000;
+const MAX_RTL_XTAL_FREQ: u32 = DEF_RTL_XTAL_FREQ + 1000;
 
-pub (crate) const FIR_LEN: usize = 16;
+pub(crate) const FIR_LEN: usize = 16;
 const DEFAULT_FIR: &'static [i32; FIR_LEN] = &[
-    -54, -36, -41, -40, -32, -14, 14, 53,   // i8
-    101, 156, 215, 273, 327, 372, 404, 421  // i12
+    -54, -36, -41, -40, -32, -14, 14, 53, // i8
+    101, 156, 215, 273, 327, 372, 404, 421, // i12
 ];
 
 #[derive(Debug)]
 pub struct RtlSdr {
     handle: Device,
     tuner: Box<dyn Tuner>,
-    freq: u32,                  // Hz
-    rate: u32,                  // Hz
+    freq: u32, // Hz
+    rate: u32, // Hz
     bw: u32,
     direct_sampling: DirectSampleMode,
     xtal: u32,
     tuner_xtal: u32,
     ppm_correction: u32,
     offset_freq: u32,
-    corr: i32,                   // PPM
+    corr: i32, // PPM
     force_bt: bool,
     force_ds: bool,
     fir: [i32; FIR_LEN],
@@ -38,9 +41,9 @@ pub struct RtlSdr {
 
 impl RtlSdr {
     pub fn new(handle: Device) -> Self {
-        RtlSdr { 
+        RtlSdr {
             handle: handle,
-            tuner: Box::new(NoTuner{}),
+            tuner: Box::new(NoTuner {}),
             freq: 0,
             rate: 0,
             bw: 0,
@@ -61,7 +64,7 @@ impl RtlSdr {
         self.handle.test_write()?;
         self.init_baseband()?;
         self.set_i2c_repeater(true)?;
-        
+
         self.tuner = {
             let tuner_id = match self.search_tuner() {
                 Some(tid) => {
@@ -80,7 +83,7 @@ impl RtlSdr {
         // Use the RTL clock value by default
         self.tuner_xtal = self.xtal;
         self.tuner.set_xtal_freq(self.get_tuner_xtal_freq())?;
-        
+
         // disable Zero-IF mode
         self.handle.demod_write_reg(1, 0xb1, 0x1a, 1)?;
 
@@ -95,7 +98,7 @@ impl RtlSdr {
         self.handle.demod_write_reg(1, 0x15, 0x01, 1)?;
 
         // Hack to force the Bias T to always be on if we set the IR-Endpoint bit in the EEPROM to 0. Default on EEPROM is 1.
-        let mut buf:[u8; EEPROM_SIZE] = [0;EEPROM_SIZE];
+        let mut buf: [u8; EEPROM_SIZE] = [0; EEPROM_SIZE];
         self.handle.read_eeprom(&buf, 0, EEPROM_SIZE)?;
         if buf[7] & 0x02 != 0 {
             self.force_bt = false;
@@ -177,7 +180,7 @@ impl RtlSdr {
 
     pub fn set_freq_correction(&mut self, ppm: i32) -> Result<()> {
         if self.corr == ppm {
-            return Ok(())
+            return Ok(());
         }
         self.corr = ppm;
         self.set_sample_freq_correction(ppm)?;
@@ -201,8 +204,12 @@ impl RtlSdr {
         }
 
         // Compute exact sample rate
-        let rsamp_ratio = ((self.xtal as u128 * 2_u128.pow(22) / rate as u128) & 0x0ffffffc) as u128;
-        info!("set_sample_rate: rate: {}, xtal: {}, rsamp_ratio: {}", rate, self.xtal, rsamp_ratio);
+        let rsamp_ratio =
+            ((self.xtal as u128 * 2_u128.pow(22) / rate as u128) & 0x0ffffffc) as u128;
+        info!(
+            "set_sample_rate: rate: {}, xtal: {}, rsamp_ratio: {}",
+            rate, self.xtal, rsamp_ratio
+        );
         let real_resamp_ratio = rsamp_ratio | ((rsamp_ratio & 0x08000000) << 1);
         info!("real_resamp_ratio: {}", real_resamp_ratio);
         let real_rate = (self.xtal as u128 * 2_u128.pow(22)) as f64 / real_resamp_ratio as f64;
@@ -214,11 +221,7 @@ impl RtlSdr {
 
         // Configure tuner
         self.set_i2c_repeater(true)?;
-        let val = if self.bw > 0 {
-            self.bw
-        } else {
-            self.rate
-        };
+        let val = if self.bw > 0 { self.bw } else { self.rate };
         self.tuner.set_bandwidth(&self.handle, val, self.rate)?;
         self.set_i2c_repeater(false)?;
         if self.tuner.get_info()?.id == TUNER_ID {
@@ -232,7 +235,7 @@ impl RtlSdr {
         self.handle.demod_write_reg(1, 0xa1, tmp, 2)?;
 
         self.set_sample_freq_correction(self.corr)?;
-        
+
         // Reset demod (bit 3, soft_rst)
         self.handle.demod_write_reg(1, 0x01, 0x14, 1)?;
         self.handle.demod_write_reg(1, 0x01, 0x10, 1)?;
@@ -245,11 +248,7 @@ impl RtlSdr {
     }
 
     pub fn set_tuner_bandwidth(&mut self, mut bw: u32) -> Result<()> {
-        bw = if bw > 0 {
-            bw
-        } else {
-            self.rate
-        };
+        bw = if bw > 0 { bw } else { self.rate };
         self.set_i2c_repeater(true)?;
         self.tuner.set_bandwidth(&self.handle, bw, self.rate)?;
         self.set_i2c_repeater(false)?;
@@ -265,10 +264,10 @@ impl RtlSdr {
         match on {
             true => {
                 self.handle.demod_write_reg(0, 0x19, 0x03, 1)?;
-            },
+            }
             false => {
                 self.handle.demod_write_reg(0, 0x19, 0x05, 1)?;
-            },
+            }
         }
         Ok(())
     }
@@ -282,16 +281,16 @@ impl RtlSdr {
                 self.set_i2c_repeater(true)?;
                 self.tuner.exit(&self.handle)?;
                 self.set_i2c_repeater(false)?;
-    
+
                 // Disable Zero-IF mode
                 self.handle.demod_write_reg(1, 0xb1, 0x1a, 1)?;
-    
+
                 // Disable spectrum inversion
                 self.handle.demod_write_reg(1, 0x15, 0x00, 1)?;
-    
+
                 // Only enable in-phase ADC input
                 self.handle.demod_write_reg(0, 0x08, 0x4d, 1)?;
-    
+
                 // Check whether to swap I and Q ADC
                 if matches!(mode, DirectSampleMode::OnSwap) {
                     self.handle.demod_write_reg(0, 0x06, 0x90, 1)?;
@@ -301,7 +300,7 @@ impl RtlSdr {
                     info!("Enabled direct sampling mode: ON");
                 }
                 self.direct_sampling = mode;
-            },
+            }
             DirectSampleMode::Off => {
                 self.set_i2c_repeater(true)?;
                 self.tuner.init(&self.handle)?;
@@ -309,7 +308,7 @@ impl RtlSdr {
 
                 if self.tuner.get_info()?.id == TUNER_ID {
                     // tuner init already does all this
-                    // self.set_if_freq(R82XX_IF_FREQ);        
+                    // self.set_if_freq(R82XX_IF_FREQ);
                     // Enable spectrum inversion
                     // handle.demod_write_reg(1, 0x15, 0x01, 1);
                 } else {
@@ -325,14 +324,14 @@ impl RtlSdr {
                 self.handle.demod_write_reg(0, 0x06, 0x80, 1)?;
                 info!("Disabled direct sampling mode");
                 self.direct_sampling = DirectSampleMode::Off;
-            },
+            }
         }
         self.set_center_freq(self.freq)?;
         Ok(())
     }
-    
+
     pub fn set_offset_tuning(&self, enable: bool) -> Result<()> {
-        // RTL-SDR-BLOG Hack, enables us to turn on the bias tee by clicking on "offset tuning" 
+        // RTL-SDR-BLOG Hack, enables us to turn on the bias tee by clicking on "offset tuning"
         // in software that doesn't have specified bias tee support.
         // Offset tuning is not used for R820T devices so it is no problem.
         #[cfg(feature = "rtl_sdr_blog")]
@@ -356,8 +355,10 @@ impl RtlSdr {
 
     pub fn set_xtal_freq(&mut self, rtl_freq: u32, tuner_freq: u32) -> Result<()> {
         if rtl_freq > 0 && (rtl_freq < MIN_RTL_XTAL_FREQ || rtl_freq > MAX_RTL_XTAL_FREQ) {
-            return Err(RtlsdrErr(
-                format!("set_xtal_freq error: rtl_freq {} out of bounds", rtl_freq)));
+            return Err(RtlsdrErr(format!(
+                "set_xtal_freq error: rtl_freq {} out of bounds",
+                rtl_freq
+            )));
         }
         if rtl_freq > 0 && self.xtal != rtl_freq {
             self.xtal = rtl_freq;
@@ -386,7 +387,7 @@ impl RtlSdr {
         Ok(())
     }
 
-    pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize>{
+    pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize> {
         self.handle.bulk_transfer(buf)
     }
 
@@ -394,7 +395,8 @@ impl RtlSdr {
         // Init baseband
         // info!("Initialize USB");
         self.handle.write_reg(BLOCK_USB, USB_SYSCTL, 0x09, 1)?;
-        self.handle.write_reg(BLOCK_USB, USB_EPA_MAXPKT, 0x0002, 2)?;
+        self.handle
+            .write_reg(BLOCK_USB, USB_EPA_MAXPKT, 0x0002, 2)?;
         self.handle.write_reg(BLOCK_USB, USB_EPA_CTL, 0x1002, 2)?;
 
         // info!("Power-on demod");
@@ -426,16 +428,16 @@ impl RtlSdr {
 
         // Disable RF and IF AGC loop
         self.handle.demod_write_reg(1, 0x04, 0x00, 1)?;
-        
+
         // Disable PID filter
         self.handle.demod_write_reg(0, 0x61, 0x60, 1)?;
-        
+
         // opt_adc_iq = 0, default ADC_I/ADC_Q datapath
         self.handle.demod_write_reg(0, 0x06, 0x80, 1)?;
-        
+
         // Enable Zero-IF mode, DC cancellation, and IQ estimation/compensation
         self.handle.demod_write_reg(1, 0xb1, 0x1b, 1)?;
-        
+
         // Disable 4.096 MHz clock output on pin TP_CK0
         self.handle.demod_write_reg(0, 0x0d, 0x83, 1)?;
 
@@ -455,8 +457,10 @@ impl RtlSdr {
 
     fn set_sample_freq_correction(&self, ppm: i32) -> Result<()> {
         let offs = (ppm * (-1) * 2_i32.pow(24) / 1_000_000) as i16;
-        self.handle.demod_write_reg(1, 0x3f, (offs & 0xff) as u16, 1)?;
-        self.handle.demod_write_reg(1, 0x3e, ((offs >> 8) & 0x3f) as u16, 1)?;
+        self.handle
+            .demod_write_reg(1, 0x3f, (offs & 0xff) as u16, 1)?;
+        self.handle
+            .demod_write_reg(1, 0x3e, ((offs >> 8) & 0x3f) as u16, 1)?;
         Ok(())
     }
 
@@ -494,17 +498,17 @@ impl RtlSdr {
 
     fn set_i2c_repeater(&self, enable: bool) -> Result<()> {
         let val = match enable {
-            true    => 0x18,
-            false   => 0x10, 
+            true => 0x18,
+            false => 0x10,
         };
-        self.handle.demod_write_reg(1, 0x01, val, 1)
+        self.handle
+            .demod_write_reg(1, 0x01, val, 1)
             .and_then(|_| return Ok(()))
     }
 
-
     pub fn set_fir(&self, fir: &[i32; FIR_LEN]) -> Result<()> {
         const TMP_LEN: usize = 20;
-        let mut tmp: [u8; TMP_LEN] = [0;TMP_LEN];
+        let mut tmp: [u8; TMP_LEN] = [0; TMP_LEN];
         // First 8 values are i8
         for i in 0..8 {
             let val = fir[i];
@@ -518,8 +522,8 @@ impl RtlSdr {
         // fir: 4b5, 7f8, 3e8, 619
         // tmp: 4b, 57, f8, 3e, 86, 19
         for i in (0..8).step_by(2) {
-            let val0 = fir[8+i];
-            let val1 = fir[8+i+1];
+            let val0 = fir[8 + i];
+            let val1 = fir[8 + i + 1];
             if val0 < -2048 || val0 > 2047 {
                 panic!("i12 FIR coefficient out of bounds: {}", val0)
             } else if val1 < -2048 || val1 > 2047 {
@@ -531,15 +535,21 @@ impl RtlSdr {
         }
 
         for i in 0..TMP_LEN {
-            self.handle.demod_write_reg(1, 0x1c + i as u16, tmp[i] as u16, 1)?;
+            self.handle
+                .demod_write_reg(1, 0x1c + i as u16, tmp[i] as u16, 1)?;
         }
         Ok(())
     }
 
     fn search_tuner(&self) -> Option<&str> {
         for tuner_info in KNOWN_TUNERS.iter() {
-            let regval = self.handle.i2c_read_reg(tuner_info.i2c_addr, tuner_info.check_addr);
-            info!("Probing I2C address {:#02x} checking address {:#02x}", tuner_info.i2c_addr, tuner_info.check_addr);
+            let regval = self
+                .handle
+                .i2c_read_reg(tuner_info.i2c_addr, tuner_info.check_addr);
+            info!(
+                "Probing I2C address {:#02x} checking address {:#02x}",
+                tuner_info.i2c_addr, tuner_info.check_addr
+            );
             match regval {
                 Ok(val) => {
                     // info!("Expecting value {:#02x}, got value {:#02x}", tuner_info.check_val, val);

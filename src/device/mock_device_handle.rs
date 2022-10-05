@@ -1,6 +1,6 @@
 //! Mock version of rusb::DeviceHandle
-use mockall::mock;
 use crate::error::Result;
+use mockall::mock;
 
 use std::time::Duration;
 

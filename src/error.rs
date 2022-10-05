@@ -13,7 +13,7 @@ macro_rules! define_errcodes {
                 $name $( ($class) )?,
             )+
         }
-        
+
         impl fmt::Display for $typename {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match *self {
