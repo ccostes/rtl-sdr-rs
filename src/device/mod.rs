@@ -122,7 +122,7 @@ impl Device {
     }
 
     pub fn read_eeprom(&self, data: &[u8], offset: u8, len: usize) -> Result<usize> {
-        assert!((len + offset as usize) < EEPROM_SIZE);
+        assert!((len + offset as usize) <= EEPROM_SIZE);
         self.write_array(BLOCK_IIC, EEPROM_ADDR, &[offset], 1)?;
         for i in 0..len {
             self.read_array(BLOCK_IIC, EEPROM_ADDR, &mut [data[i]], 1)?;
