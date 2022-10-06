@@ -1,11 +1,7 @@
-This library is a functional port of the original [Osmocom library](https://osmocom.org/projects/rtl-sdr/wiki), with some significant structure and organization refactors, as well as comments,documentation and tests. The goal is understandable and idiomatic Rust code.
+# Background
+Before getting into the library details it useful to know some domain context. RTL-SDR encompasses a family of devices (see the `KNOWN_DEVICES` list in [device/constants.rs](device/constants.rs)) which share a common base but use a few different tuners which require unique configuration. 
 
 # Library Structure
-## lib.rs
-The public interface, and the bulk of the code overall, is in [lib.rs](lib.rs). While there is some re-organization overall vs. the original, `lib.rs` in particular could use some additional organization and separation into smaller files - it's a bit of a kitchen sink.
+The layout of this library reflects the context above - an `RtlSdr` struct defined in  [rtlsdr.rs](rtlsdr.rs) contains the core logic, and includes a `tuner` field which is dynamically populated with one of the implementations in the [tuners](tuners/) module depending on which tuner is detected.
 
-## Tuners
-There are a number of different tuners that could be encountered, so the idea is to abstract them with an interface defined in [tuners/mod.rs](tuners/mod.rs). Currently the `R820T` tuner is the only one that has been implemented.
-
-## Device
-USB IO functionality is abstracted by the Device interface, defined in [device/mod.rs](device/mod.rs).
+Generic USB and IO functionality is implemented in the [device/](device/) module.
