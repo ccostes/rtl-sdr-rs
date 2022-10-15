@@ -68,13 +68,13 @@ impl RtlSdr {
     pub fn set_sample_rate(&mut self, rate: u32) -> Result<()> {
         self.sdr.set_sample_rate(rate)
     }
-    pub fn set_tuner_bandwidth(&mut self, mut bw: u32) -> Result<()> {
+    pub fn set_tuner_bandwidth(&mut self, bw: u32) -> Result<()> {
         self.sdr.set_tuner_bandwidth(bw)
     }
     pub fn set_testmode(&mut self, on: bool) -> Result<()> {
         self.sdr.set_testmode(on)
     }
-    pub fn set_direct_sampling(&mut self, mut mode: DirectSampleMode) -> Result<()> {
+    pub fn set_direct_sampling(&mut self, mode: DirectSampleMode) -> Result<()> {
         self.sdr.set_direct_sampling(mode)
     }
     pub fn set_bias_tee(&self, on: bool) -> Result<()> {

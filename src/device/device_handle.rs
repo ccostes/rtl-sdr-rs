@@ -13,17 +13,17 @@ pub struct DeviceHandle {
 impl DeviceHandle {
     pub fn open(index: usize) -> Result<Self> {
         let mut context = Context::new()?;
-        let mut handle = DeviceHandle::open_device(&mut context, index)?;
+        let handle = DeviceHandle::open_device(&mut context, index)?;
         Ok(DeviceHandle { handle: handle })
     }
 
     pub fn open_device<T: UsbContext>(
         context: &mut T,
-        index: usize,
+        _index: usize,
     ) -> Result<rusb::DeviceHandle<T>> {
         let devices = context.devices().map(|d| d)?;
 
-        let device = for found in devices.iter() {
+        let _device = for found in devices.iter() {
             let device_desc = found.device_descriptor().map(|d| d)?;
             for dev in KNOWN_DEVICES.iter() {
                 if device_desc.vendor_id() == dev.vid && device_desc.product_id() == dev.pid {
