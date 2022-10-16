@@ -245,6 +245,7 @@ const FREQ_RANGES: [FreqRange; 21] = [
     },
 ];
 
+#[allow(dead_code)]
 enum TunerType {
     TunerRadio,
     TunerAnalogTv,
@@ -252,6 +253,7 @@ enum TunerType {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum XtalCapValue {
     XtalLowCap30p,
     XtalLowCap20p,
@@ -260,6 +262,7 @@ enum XtalCapValue {
     XtalHighCap0p,
 }
 
+#[allow(dead_code)]
 const XTAL_CAPACITOR_VALUES: [u8; 5] = [
     0x0b, // XTAL_LOW_CAP_30P
     0x02, // XTAL_LOW_CAP_20P
@@ -268,12 +271,14 @@ const XTAL_CAPACITOR_VALUES: [u8; 5] = [
     0x10, // XTAL_HIGH_CAP_0P
 ];
 
+#[allow(dead_code)]
 enum DeliverySystem {
     SysUndefined,
     SysDvbt,
     SysDvbt2,
     SysIsdbt,
 }
+
 #[derive(Debug)]
 pub struct R820T {
     pub info: TunerInfo,
@@ -303,8 +308,8 @@ pub const TUNER_INFO: TunerInfo = TunerInfo {
 };
 
 impl R820T {
-    pub fn new(handle: &mut Device) -> R820T {
-        let mut tuner = R820T {
+    pub fn new(_handle: &mut Device) -> R820T {
+        let tuner = R820T {
             info: TUNER_INFO,
             regs: REG_INIT,
             freq: 0,
@@ -450,7 +455,7 @@ impl Tuner for R820T {
             (0x10, 0x6b)
         } else {
             self.int_freq = 2_300_000;
-            let (mut reg_0a, mut reg_0b): (u8, u8) = (0x00, 0x80);
+            let (reg_0a, mut reg_0b): (u8, u8) = (0x00, 0x80);
             let mut real_bw = 0;
 
             if bw > R82XX_IF_LOW_PASS_BW_TABLE[0] + FILT_HP_BW1 {
@@ -591,11 +596,10 @@ impl R820T {
         let vco_min: u32 = 1770000;
         let vco_max: u32 = vco_min * 2;
         let mut mix_div: u8 = 2;
-        let mut div_buf: u8 = 0;
         let mut div_num: u8 = 0;
         while mix_div <= 64 {
             if ((freq_khz * mix_div as u32) >= vco_min) && ((freq_khz * mix_div as u32) < vco_max) {
-                div_buf = mix_div;
+                let mut div_buf = mix_div;
                 while div_buf > 2 {
                     div_buf = div_buf >> 1;
                     div_num += 1;
@@ -702,7 +706,7 @@ impl R820T {
         let mixer_top;
         let lna_top;
         let cp_cur;
-        let mut div_buf_cur;
+        let div_buf_cur;
         let lna_vth_l;
         let mixer_vth_l;
         let air_cable1_in;

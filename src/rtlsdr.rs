@@ -98,7 +98,7 @@ impl RtlSdr {
         self.handle.demod_write_reg(1, 0x15, 0x01, 1)?;
 
         // Hack to force the Bias T to always be on if we set the IR-Endpoint bit in the EEPROM to 0. Default on EEPROM is 1.
-        let mut buf: [u8; EEPROM_SIZE] = [0; EEPROM_SIZE];
+        let buf: [u8; EEPROM_SIZE] = [0; EEPROM_SIZE];
         self.handle.read_eeprom(&buf, 0, EEPROM_SIZE)?;
         if buf[7] & 0x02 != 0 {
             self.force_bt = false;
@@ -330,7 +330,7 @@ impl RtlSdr {
         Ok(())
     }
 
-    pub fn set_offset_tuning(&self, enable: bool) -> Result<()> {
+    pub fn set_offset_tuning(&self, _enable: bool) -> Result<()> {
         // RTL-SDR-BLOG Hack, enables us to turn on the bias tee by clicking on "offset tuning"
         // in software that doesn't have specified bias tee support.
         // Offset tuning is not used for R820T devices so it is no problem.
@@ -345,6 +345,7 @@ impl RtlSdr {
         Ok(self.set_gpio(0, on)?)
     }
 
+    #[allow(dead_code)]
     pub fn get_xtal_freq(&self) -> u32 {
         (self.xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
     }
@@ -353,6 +354,7 @@ impl RtlSdr {
         (self.tuner_xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
     }
 
+    #[allow(dead_code)]
     pub fn set_xtal_freq(&mut self, rtl_freq: u32, tuner_freq: u32) -> Result<()> {
         if rtl_freq > 0 && (rtl_freq < MIN_RTL_XTAL_FREQ || rtl_freq > MAX_RTL_XTAL_FREQ) {
             return Err(RtlsdrErr(format!(
@@ -474,9 +476,8 @@ impl RtlSdr {
     }
 
     fn set_gpio_bit(&self, mut gpio: u8, val: bool) -> Result<()> {
-        let mut r: u16 = 0;
         gpio = 1 << gpio;
-        r = self.handle.read_reg(BLOCK_SYS, GPO, 1)?;
+        let mut r = self.handle.read_reg(BLOCK_SYS, GPO, 1)?;
         r = if val {
             r | gpio as u16
         } else {
@@ -488,8 +489,7 @@ impl RtlSdr {
 
     fn set_gpio_output(&self, mut gpio: u8) -> Result<()> {
         gpio = 1 << gpio;
-        let mut r = 0;
-        r = self.handle.read_reg(BLOCK_SYS, GPD, 1)?;
+        let mut r = self.handle.read_reg(BLOCK_SYS, GPD, 1)?;
         self.handle.write_reg(BLOCK_SYS, GPD, r & !gpio as u16, 1)?;
         r = self.handle.read_reg(BLOCK_SYS, GPOE, 1)?;
         self.handle.write_reg(BLOCK_SYS, GPOE, r | gpio as u16, 1)?;
