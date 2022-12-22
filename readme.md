@@ -16,6 +16,19 @@ and similarly on Linux:
 ```
 cargo run --example simple_fm | aplay -r 32k -f S16_LE
 ```
+### Uload Kernel Modules
+If the RTL kernel modules are installed you will need to temporarily unload them before using this library as follows:
+```
+sudo rmmod rtl2832_sdr
+sudo rmmod dvb_usb_rtl28xxu
+sudo rmmod rtl2832
+sudo rmmod rtl8xxxu
+```
+Failure to do so will result in the following USB error:
+```
+thread 'main' panicked at 'Unable to open SDR device!: Usb(Busy)'
+```
+
 The example is thoroughly documented to clearly show how to use this library, and hopefully make the FM demodulation process understandable too!
 
 ## Build Options
