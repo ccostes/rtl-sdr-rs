@@ -335,7 +335,7 @@ impl RtlSdr {
         // in software that doesn't have specified bias tee support.
         // Offset tuning is not used for R820T devices so it is no problem.
         #[cfg(feature = "rtl_sdr_blog")]
-        self.set_gpio(0, enable)?;
+        self.set_gpio(0, _enable)?;
 
         // TODO: implement the rest when we support tuners beyond R82xx
         Ok(())
