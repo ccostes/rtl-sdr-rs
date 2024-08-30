@@ -133,11 +133,11 @@ impl Device {
         Ok(self.handle.read_bulk(0x81, buf, Duration::ZERO)?)
     }
 
-    pub fn read_eeprom(&self, data: &[u8], offset: u8, len: usize) -> Result<usize> {
+    pub fn read_eeprom(&self, data: &mut [u8], offset: u8, len: usize) -> Result<usize> {
         assert!((len + offset as usize) <= EEPROM_SIZE);
         self.write_array(BLOCK_IIC, EEPROM_ADDR, &[offset], 1)?;
         for i in 0..len {
-            self.read_array(BLOCK_IIC, EEPROM_ADDR, &mut [data[i]], 1)?;
+            self.read_array(BLOCK_IIC, EEPROM_ADDR, &mut data[i..i+1], 1)?;
         }
         Ok(len)
     }

@@ -98,8 +98,8 @@ impl RtlSdr {
         self.handle.demod_write_reg(1, 0x15, 0x01, 1)?;
 
         // Hack to force the Bias T to always be on if we set the IR-Endpoint bit in the EEPROM to 0. Default on EEPROM is 1.
-        let buf: [u8; EEPROM_SIZE] = [0; EEPROM_SIZE];
-        self.handle.read_eeprom(&buf, 0, EEPROM_SIZE)?;
+        let mut buf: [u8; EEPROM_SIZE] = [0; EEPROM_SIZE];
+        self.handle.read_eeprom(&mut buf, 0, EEPROM_SIZE)?;
         if buf[7] & 0x02 != 0 {
             self.force_bt = false;
         } else {
