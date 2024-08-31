@@ -41,7 +41,8 @@ fn test_read_reg_u16() {
     let block = BLOCK_SYS;
     let index_expected = BLOCK_SYS << 8;
     let addr = GPO;
-    let data_expected = u16::to_be_bytes(0x123);
+    // Bytes are read as little-endian
+    let data_expected = u16::to_le_bytes(0x123);
 
     let mut mock_handle = MockDeviceHandle::new();
     mock_handle
@@ -64,7 +65,7 @@ fn test_read_reg_u16() {
         handle: mock_handle,
     };
     let result = device.read_reg(block, addr, 2).unwrap();
-    assert_eq!(u16::from_be_bytes(data_expected), result);
+    assert_eq!(u16::from_le_bytes(data_expected), result);
 }
 
 #[test]
