@@ -981,8 +981,8 @@ impl R820T {
 
     /// Read register data from local cache
     /// # Panics
-    ///     * reg < RW_REG_START
-    ///     * reg > NUM_REGS
+    /// * If `reg` is less than `RW_REG_START`
+    /// * If `reg` is greater than `NUM_REGS`
     fn read_cache_reg(&self, reg: usize) -> u8 {
         assert!(reg >= RW_REG_START); // is assert the best thing to use here?
         let index = reg - RW_REG_START;
