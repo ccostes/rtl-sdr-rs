@@ -166,7 +166,7 @@ fn test_read_eeprom_out_of_range() {
     let device = Device {
         handle: mock_handle,
     };
-    let data = [0; 5];
+    let mut data = [0; 5];
     // Try to read more than eeprom size - should panic
-    device.read_eeprom(&data, 0, EEPROM_SIZE).unwrap();
+    device.read_eeprom(&mut data, 0, EEPROM_SIZE).unwrap();
 }
