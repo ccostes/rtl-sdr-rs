@@ -29,6 +29,8 @@ const RATE_RESAMPLE: u32 = 32_000; // Output sample rate, 32kHz
 // Setting this to true can be a quick way to verify that the program and audio output is working.
 const READ_FROM_FILE: bool = false;
 const INPUT_FILE_PATH: &str = "capture.bin";
+// RTL Device Index
+const RTL_INDEX: usize = 0;
 
 fn main() {
     // Printing to stdout will break audio output, so use this to log to stderr instead
@@ -85,7 +87,7 @@ fn main() {
 /// SHUTDOWN flag is set to true.
 fn receive(shutdown: &AtomicBool, radio_config: RadioConfig, tx: Sender<Vec<u8>>) {
     // Open device
-    let mut sdr = RtlSdr::open(0).expect("Failed to open device");
+    let mut sdr = RtlSdr::open(RTL_INDEX).expect("Failed to open device");
     // Config receiver
     config_sdr(
         &mut sdr,

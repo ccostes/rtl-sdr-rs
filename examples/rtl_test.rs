@@ -9,6 +9,7 @@ enum TestMode {
 }
 const DEFAULT_BUF_LENGTH: usize = (16 * 16384);
 
+const DEVICE_INDEX: usize = 0;
 const SAMPLE_RATE: u32 = 2_048_000;
 
 fn main() -> Result<()> {
@@ -19,7 +20,7 @@ fn main() -> Result<()> {
     });
 
     // Open device
-    let mut sdr = RtlSdr::open(0).expect("Unable to open SDR device!");
+    let mut sdr = RtlSdr::open(DEVICE_INDEX).expect("Unable to open SDR device!");
     // println!("{:#?}", sdr);
 
     let gains = sdr.get_tuner_gains()?;
