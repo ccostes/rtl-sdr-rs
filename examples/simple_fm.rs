@@ -19,9 +19,11 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::{Instant, Duration};
+
 
 // Radio and demodulation config
-const FREQUENCY: u32 = 91_100_000; // Frequency in Hz, 91.1MHz WREK Atlanta
+const FREQUENCY: u32 = 94_900_000; // Frequency in Hz, 91.1MHz WREK Atlanta
 const SAMPLE_RATE: u32 = 170_000; // Demodulation sample rate, 170kHz
 const RATE_RESAMPLE: u32 = 32_000; // Output sample rate, 32kHz
 
@@ -137,6 +139,10 @@ fn process(shutdown: &AtomicBool, demod_config: DemodConfig, rx: Receiver<Vec<u8
     info!("Oversampling input by: {}x", demod.config.downsample);
     info!("Output at {} Hz", demod.config.rate_in);
     info!("Output scale: {}", demod.config.output_scale);
+
+    // Variables to track the running average loop time
+    let mut total_time: Duration = Duration::new(0, 0);
+    let mut loop_count: u64 = 0;
     loop {
         if shutdown.load(Ordering::Relaxed) {
             break;
@@ -144,9 +150,19 @@ fn process(shutdown: &AtomicBool, demod_config: DemodConfig, rx: Receiver<Vec<u8
         // Wait for data from the channel
         let buf = rx.recv().unwrap();
         // Demodulate data
+        let start_time = Instant::now();
         let result = demod.demodulate(buf);
+        let elapsed_time = start_time.elapsed();
         // Output audio data to stdout
         output(result);
+        // Update total time and loop count for running average
+        total_time += elapsed_time;
+        loop_count += 1;
+    }
+    // Print the final average loop time when shutting down
+    if loop_count > 0 {
+        let final_avg_time = total_time.as_nanos() / loop_count as u128;
+        info!("Average processing time: {:.2?}ms ({:?} loops)", final_avg_time as f32 / 1.0e6, loop_count);
     }
 }
 
@@ -252,23 +268,65 @@ impl Demod {
     /// Performs a 90-degree rotation in the complex plane on a vector of bytes
     /// and returns the resulting vector.
     /// Data is assumed to be pairs of real and imaginary components.
+    /// 90 rotation is 1+0j, 0+1j, -1+0j, 0-1j
+    /// or rearranging elements according to [0, 1, -3, 2, -4, -5, 7, -6]
     fn rotate_90(mut buf: Vec<u8>) -> Vec<u8> {
-        /* 90 rotation is 1+0j, 0+1j, -1+0j, 0-1j
-        or [0, 1, -3, 2, -4, -5, 7, -6] */
-        let mut tmp: u8;
-        for i in (0..buf.len()).step_by(8) {
-            /* uint8_t negation = 255 - x */
-            tmp = 255 - buf[i + 3];
-            buf[i + 3] = buf[i + 2];
-            buf[i + 2] = tmp;
-
-            buf[i + 4] = 255 - buf[i + 4];
-            buf[i + 5] = 255 - buf[i + 5];
-
-            tmp = 255 - buf[i + 6];
-            buf[i + 6] = buf[i + 7];
-            buf[i + 7] = tmp;
+        #[cfg(all(target_arch = "aarch64", not(feature = "disable-simd")))]
+        {
+            unsafe { Self::rotate_90_neon(buf) } // Use SIMD on ARM (NEON)
         }
+        #[cfg(any(not(target_arch = "aarch64"), feature = "disable-simd"))]
+        {
+            let mut tmp: u8;
+            for i in (0..buf.len()).step_by(8) {
+                /* uint8_t negation = 255 - x */
+                tmp = 255 - buf[i + 3];
+                buf[i + 3] = buf[i + 2];
+                buf[i + 2] = tmp;
+    
+                buf[i + 4] = 255 - buf[i + 4];
+                buf[i + 5] = 255 - buf[i + 5];
+    
+                tmp = 255 - buf[i + 6];
+                buf[i + 6] = buf[i + 7];
+                buf[i + 7] = tmp;
+            }
+            buf
+        }
+    }
+    #[cfg(target_arch = "aarch64")]
+    unsafe fn rotate_90_neon(mut buf: Vec<u8>) -> Vec<u8> {
+        use std::arch::aarch64::*;
+
+        // Process 16 bytes (two sets of 8 bytes) per iteration
+        for i in (0..buf.len()).step_by(16) {
+            // Load two 8-byte chunks into NEON vectors
+            let vec1 = vld1q_u8(&buf[i] as *const u8);      // First 8 bytes
+            let vec2 = vld1q_u8(&buf[i + 8] as *const u8);  // Next 8 bytes
+
+            // Apply the transformation for the first 8 bytes
+            let mut result1 = vec1;
+            result1 = vsetq_lane_u8(255 - vgetq_lane_u8(vec1, 3), result1, 2);
+            result1 = vsetq_lane_u8(vgetq_lane_u8(vec1, 2), result1, 3);
+            result1 = vsetq_lane_u8(255 - vgetq_lane_u8(vec1, 4), result1, 4);
+            result1 = vsetq_lane_u8(255 - vgetq_lane_u8(vec1, 5), result1, 5);
+            result1 = vsetq_lane_u8(255 - vgetq_lane_u8(vec1, 7), result1, 6);
+            result1 = vsetq_lane_u8(vgetq_lane_u8(vec1, 6), result1, 7);
+
+            // Apply the transformation for the next 8 bytes
+            let mut result2 = vec2;
+            result2 = vsetq_lane_u8(255 - vgetq_lane_u8(vec2, 3), result2, 2);
+            result2 = vsetq_lane_u8(vgetq_lane_u8(vec2, 2), result2, 3);
+            result2 = vsetq_lane_u8(255 - vgetq_lane_u8(vec2, 4), result2, 4);
+            result2 = vsetq_lane_u8(255 - vgetq_lane_u8(vec2, 5), result2, 5);
+            result2 = vsetq_lane_u8(255 - vgetq_lane_u8(vec2, 7), result2, 6);
+            result2 = vsetq_lane_u8(vgetq_lane_u8(vec2, 6), result2, 7);
+
+            // Store the results back to the buffer
+            vst1q_u8(&mut buf[i] as *mut u8, result1);
+            vst1q_u8(&mut buf[i + 8] as *mut u8, result2);
+        }
+
         buf
     }
 
@@ -414,7 +472,7 @@ mod tests {
         ];
         let lp_complex = buf_to_complex(lowpass);
 
-        let (_, demod_config) = optimal_settings(DEFAULT_FREQUENCY, SAMPLE_RATE);
+        let (_, demod_config) = optimal_settings(FREQUENCY, SAMPLE_RATE);
         let mut demod = Demod::new(demod_config);
 
         let buf_signed = vec![
@@ -469,7 +527,7 @@ mod tests {
         ];
         let result = vec![2588, 4030, -1212, -3430, 2585, 2110, -6110];
 
-        let (_, demod_config) = optimal_settings(DEFAULT_FREQUENCY, SAMPLE_RATE);
+        let (_, demod_config) = optimal_settings(FREQUENCY, SAMPLE_RATE);
         let mut demod = Demod::new(demod_config);
 
         let demodulated = demod.fm_demod(lp_complex);
@@ -486,7 +544,7 @@ mod tests {
         ];
         let result = vec![2588, 4030, -1212, -3430, 2585, 2110, -6110];
 
-        let (_, demod_config) = optimal_settings(DEFAULT_FREQUENCY, SAMPLE_RATE);
+        let (_, demod_config) = optimal_settings(FREQUENCY, SAMPLE_RATE);
         let mut demod = Demod::new(demod_config);
 
         let output = demod.low_pass_real(demodulated);
