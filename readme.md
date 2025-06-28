@@ -14,7 +14,7 @@ cargo run --example simple_fm | play -r 32k -t raw -e s -b 16 -c 1 -V1 -
 ```
 and similarly on Linux:
 ```
-cargo run --example simple_fm | aplay -r 32k -f S16_LE
+cargo run --example simple_fm | aplay -r 32000 -f S16_LE
 ```
 ### Uload Kernel Modules
 If the RTL kernel modules are installed you will need to temporarily unload them before using this library as follows:
