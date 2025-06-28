@@ -1,3 +1,7 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 use super::{DirectSampleMode, TunerGain};
 use crate::device::{
     Device, BLOCK_SYS, BLOCK_USB, DEMOD_CTL, DEMOD_CTL_1, EEPROM_SIZE, GPD, GPO, GPOE, USB_EPA_CTL,
