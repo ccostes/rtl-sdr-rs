@@ -2,6 +2,11 @@
 name = "rtlsdr-rs"
 version = "0.1.0"
 edition = "2021"
+license = "MPL-2.0"
+description = "RTL-SDR USB software defined radio library"
+repository = "https://github.com/ccostes/rtl-sdr-rs"
+readme = "readme.md"
+keywords = ["rtl-sdr", "sdr", "radio"]
 
 [features]
 default = []
