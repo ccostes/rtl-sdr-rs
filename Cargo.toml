@@ -7,6 +7,7 @@ description = "RTL-SDR USB software defined radio library"
 repository = "https://github.com/ccostes/rtl-sdr-rs"
 readme = "readme.md"
 keywords = ["rtl-sdr", "sdr", "radio"]
+exclude = ["capture.bin"]
 
 [features]
 default = []
