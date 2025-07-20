@@ -12,7 +12,7 @@ use core::alloc::Layout;
 use ctrlc;
 use log::info;
 use num_complex::Complex;
-use rtlsdr_rs::{error::Result, RtlSdr, DEFAULT_BUF_LENGTH};
+use rtl_sdr_rs::{error::Result, RtlSdr, DEFAULT_BUF_LENGTH};
 use std::alloc::alloc_zeroed;
 use std::f64::consts::PI;
 use std::io::Write;
@@ -213,7 +213,7 @@ fn optimal_settings(freq: u32, rate: u32) -> (RadioConfig, DemodConfig) {
 /// Configure the SDR device for a given receive frequency and sample rate.
 fn config_sdr(sdr: &mut RtlSdr, freq: u32, rate: u32) -> Result<()> {
     // Use auto-gain
-    sdr.set_tuner_gain(rtlsdr_rs::TunerGain::Auto)?;
+    sdr.set_tuner_gain(rtl_sdr_rs::TunerGain::Auto)?;
     // Disable bias-tee
     sdr.set_bias_tee(false)?;
     // Reset the endpoint before we try to read from it (mandatory)

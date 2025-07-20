@@ -1,5 +1,5 @@
 use ctrlc;
-use rtlsdr_rs::{error::Result, RtlSdr};
+use rtl_sdr_rs::{error::Result, RtlSdr};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 enum TestMode {
