@@ -16,6 +16,12 @@ use rtlsdr::RtlSdr as Sdr;
 
 pub const DEFAULT_BUF_LENGTH: usize = 16 * 16384;
 
+#[derive(Debug, PartialEq)]
+pub enum Args {
+    Index(usize),
+    Fd(i32),
+}
+
 #[derive(Debug)]
 pub enum TunerGain {
     Auto,
@@ -32,11 +38,21 @@ pub struct RtlSdr {
     sdr: Sdr,
 }
 impl RtlSdr {
-    pub fn open(index: usize) -> Result<RtlSdr> {
-        let dev = Device::new(index)?;
+    pub fn open(args: Args) -> Result<RtlSdr> {
+        let dev = Device::new(args)?;
         let mut sdr = Sdr::new(dev);
         sdr.init()?;
         Ok(RtlSdr { sdr: sdr })
+    }
+    
+    /// Convenience function to open device by index (backward compatibility)
+    pub fn open_with_index(index: usize) -> Result<RtlSdr> {
+        Self::open(Args::Index(index))
+    }
+    
+    /// Convenience function to open device by file descriptor  
+    pub fn open_with_fd(fd: i32) -> Result<RtlSdr> {
+        Self::open(Args::Fd(fd))
     }
     pub fn close(&mut self) -> Result<()> {
         // TODO: wait until async is inactive

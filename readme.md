@@ -16,6 +16,33 @@ and similarly on Linux:
 ```
 cargo run --example simple_fm | aplay -r 32000 -f S16_LE
 ```
+
+### Opening Devices
+This library supports multiple ways to open RTL-SDR devices:
+
+#### By device index (default method):
+```rust
+use rtl_sdr_rs::{Args, RtlSdr};
+
+// Method 1: Using Args enum
+let sdr = RtlSdr::open(Args::Index(0))?;
+
+// Method 2: Using convenience function 
+let sdr = RtlSdr::open_with_index(0)?;
+```
+
+#### By file descriptor (Unix systems only):
+```rust
+use rtl_sdr_rs::{Args, RtlSdr};
+
+// Method 1: Using Args enum
+let sdr = RtlSdr::open(Args::Fd(fd))?;
+
+// Method 2: Using convenience function
+let sdr = RtlSdr::open_with_fd(fd)?;
+```
+
+See the [demo_args example](examples/demo_args.rs) for a complete demonstration of all opening methods.
 ### Uload Kernel Modules
 If the RTL kernel modules are installed you will need to temporarily unload them before using this library as follows:
 ```
