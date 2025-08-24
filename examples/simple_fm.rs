@@ -12,7 +12,7 @@ use core::alloc::Layout;
 use ctrlc;
 use log::info;
 use num_complex::Complex;
-use rtl_sdr_rs::{error::Result, RtlSdr, DEFAULT_BUF_LENGTH};
+use rtl_sdr_rs::{error::Result, RtlSdr, DEFAULT_BUF_LENGTH, Args};
 use std::alloc::alloc_zeroed;
 use std::f64::consts::PI;
 use std::io::Write;
@@ -89,7 +89,7 @@ fn main() {
 /// SHUTDOWN flag is set to true.
 fn receive(shutdown: &AtomicBool, radio_config: RadioConfig, tx: Sender<Vec<u8>>) {
     // Open device
-    let mut sdr = RtlSdr::open(RTL_INDEX).expect("Failed to open device");
+    let mut sdr = RtlSdr::open(Args::Index(RTL_INDEX)).expect("Failed to open device");
     // Config receiver
     config_sdr(
         &mut sdr,
