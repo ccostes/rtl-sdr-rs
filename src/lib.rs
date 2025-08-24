@@ -44,6 +44,16 @@ impl RtlSdr {
         sdr.init()?;
         Ok(RtlSdr { sdr: sdr })
     }
+    
+    /// Convenience function to open device by index (backward compatibility)
+    pub fn open_with_index(index: usize) -> Result<RtlSdr> {
+        Self::open(Args::Index(index))
+    }
+    
+    /// Convenience function to open device by file descriptor  
+    pub fn open_with_fd(fd: i32) -> Result<RtlSdr> {
+        Self::open(Args::Fd(fd))
+    }
     pub fn close(&mut self) -> Result<()> {
         // TODO: wait until async is inactive
         Ok(self.sdr.deinit_baseband()?)
