@@ -31,7 +31,7 @@ let sdr = RtlSdr::open(Args::Index(0))?;
 let sdr = RtlSdr::open_with_index(0)?;
 ```
 
-#### By file descriptor (Unix systems only):
+#### By file descriptor (useful on Android):
 ```rust
 use rtl_sdr_rs::{Args, RtlSdr};
 
