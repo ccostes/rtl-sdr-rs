@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use crate::Args;
+use crate::DeviceId;
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
 use rusb::{Context, UsbContext};
@@ -16,11 +16,11 @@ pub struct DeviceHandle {
     handle: rusb::DeviceHandle<Context>,
 }
 impl DeviceHandle {
-    pub fn open(args: Args) -> Result<Self> {
+    pub fn open(device_id: DeviceId) -> Result<Self> {
         let mut context = Context::new()?;
-        let handle = match args {
-            Args::Index(index) => DeviceHandle::open_device(&mut context, index)?,
-            Args::Fd(fd) => DeviceHandle::open_device_with_fd(&mut context, fd)?,
+        let handle = match device_id {
+            DeviceId::Index(index) => DeviceHandle::open_device(&mut context, index)?,
+            DeviceId::Fd(fd) => DeviceHandle::open_device_with_fd(&mut context, fd)?,
         };
         Ok(DeviceHandle { handle: handle })
     }

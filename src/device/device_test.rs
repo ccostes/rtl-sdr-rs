@@ -4,7 +4,7 @@
 
 use mockall::predicate::{self, eq};
 
-use crate::Args;
+use crate::DeviceId;
 use crate::device::mock_device_handle::MockDeviceHandle;
 use crate::device::{Device, EEPROM_SIZE};
 
@@ -310,17 +310,17 @@ fn test_read_eeprom_invalid_offset() {
 }
 
 #[test]
-fn test_args_enum_variants() {
-    // Test that we can create Args variants
-    let index_args = Args::Index(0);
-    let fd_args = Args::Fd(42);
+fn test_device_id_enum_variants() {
+    // Test that we can create DeviceId variants
+    let index_device_id = DeviceId::Index(0);
+    let fd_device_id = DeviceId::Fd(42);
     
     // Test equality
-    assert_eq!(index_args, Args::Index(0));
-    assert_eq!(fd_args, Args::Fd(42));
-    assert_ne!(index_args, fd_args);
+    assert_eq!(index_device_id, DeviceId::Index(0));
+    assert_eq!(fd_device_id, DeviceId::Fd(42));
+    assert_ne!(index_device_id, fd_device_id);
     
     // Test debug representation 
-    assert_eq!(format!("{:?}", index_args), "Index(0)");
-    assert_eq!(format!("{:?}", fd_args), "Fd(42)");
+    assert_eq!(format!("{:?}", index_device_id), "Index(0)");
+    assert_eq!(format!("{:?}", fd_device_id), "Fd(42)");
 }

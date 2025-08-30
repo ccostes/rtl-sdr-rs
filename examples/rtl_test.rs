@@ -1,5 +1,5 @@
 use ctrlc;
-use rtl_sdr_rs::{error::Result, RtlSdr, Args};
+use rtl_sdr_rs::{error::Result, RtlSdr, DeviceId};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 enum TestMode {
@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     });
 
     // Open device
-    let mut sdr = RtlSdr::open(Args::Index(DEVICE_INDEX)).expect("Unable to open SDR device!");
+    let mut sdr = RtlSdr::open(DeviceId::Index(DEVICE_INDEX)).expect("Unable to open SDR device!");
     // println!("{:#?}", sdr);
 
     let gains = sdr.get_tuner_gains()?;
