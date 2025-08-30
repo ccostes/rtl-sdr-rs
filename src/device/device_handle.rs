@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use crate::DeviceId;
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
 use rusb::{Context, UsbContext};
@@ -15,9 +16,12 @@ pub struct DeviceHandle {
     handle: rusb::DeviceHandle<Context>,
 }
 impl DeviceHandle {
-    pub fn open(index: usize) -> Result<Self> {
+    pub fn open(device_id: DeviceId) -> Result<Self> {
         let mut context = Context::new()?;
-        let handle = DeviceHandle::open_device(&mut context, index)?;
+        let handle = match device_id {
+            DeviceId::Index(index) => DeviceHandle::open_device(&mut context, index)?,
+            DeviceId::Fd(fd) => DeviceHandle::open_device_with_fd(&mut context, fd)?,
+        };
         Ok(DeviceHandle { handle: handle })
     }
     pub fn open_device<T: UsbContext>(
@@ -69,6 +73,31 @@ impl DeviceHandle {
             "No device found at index {}",
             index
         )))
+    }
+
+    #[cfg(unix)]
+    pub fn open_device_with_fd<T: UsbContext>(
+        context: &mut T,
+        fd: i32,
+    ) -> Result<rusb::DeviceHandle<T>> {
+        use std::os::unix::io::RawFd;
+        
+        info!("Opening device with file descriptor {}", fd);
+        
+        unsafe {
+            context.open_device_with_fd(fd as RawFd).map_err(|e| {
+                info!("Failed to open device with fd {}: {:?}", fd, e);
+                RtlsdrErr(format!("Error opening device with fd {}: {:?}", fd, e))
+            })
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub fn open_device_with_fd<T: UsbContext>(
+        _context: &mut T,
+        _fd: i32,
+    ) -> Result<rusb::DeviceHandle<T>> {
+        Err(RtlsdrErr("File descriptor opening is only supported on Unix systems".to_string()))
     }
     
     pub fn claim_interface(&mut self, iface: u8) -> Result<()> {

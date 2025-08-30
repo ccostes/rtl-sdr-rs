@@ -3,6 +3,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! Mock version of rusb::DeviceHandle
+use crate::DeviceId;
 use crate::error::Result;
 use mockall::mock;
 
@@ -11,7 +12,7 @@ use std::time::Duration;
 mock! {
     #[derive(Debug)]
     pub DeviceHandle {
-        pub fn open(index: usize) -> Result<Self>;
+        pub fn open(device_id: DeviceId) -> Result<Self>;
         pub fn claim_interface(&mut self, iface: u8) -> Result<()>;
         pub fn reset(&mut self) -> Result<()>;
         pub fn read_control(

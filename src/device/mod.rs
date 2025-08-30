@@ -13,6 +13,7 @@ use device_handle::DeviceHandle;
 #[cfg(test)]
 use mock_device_handle::MockDeviceHandle as DeviceHandle;
 
+use crate::DeviceId;
 use crate::error::Result;
 use byteorder::{ByteOrder, LittleEndian};
 /// Low-level io functions for interfacing with rusb(libusb)
@@ -28,9 +29,9 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new(index: usize) -> Result<Device> {
+    pub fn new(device_id: DeviceId) -> Result<Device> {
         Ok(Device {
-            handle: DeviceHandle::open(index)?,
+            handle: DeviceHandle::open(device_id)?,
         })
     }
 
