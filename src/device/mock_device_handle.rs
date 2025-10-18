@@ -3,8 +3,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! Mock version of rusb::DeviceHandle
-use crate::DeviceId;
 use crate::error::Result;
+use crate::DeviceId;
 use mockall::mock;
 
 use std::time::Duration;
@@ -39,6 +39,9 @@ mock! {
             buf: &mut [u8],
             timeout: Duration,
         ) -> Result<usize>;
+        pub fn get_usb_strings(
+            &self,
+        ) -> Result<(Option<String>, Option<String>, Option<String>)>;
 
     }
 }

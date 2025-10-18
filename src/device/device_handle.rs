@@ -138,4 +138,28 @@ impl DeviceHandle {
     pub fn read_bulk(&self, endpoint: u8, buf: &mut [u8], timeout: Duration) -> Result<usize> {
         Ok(self.handle.read_bulk(endpoint, buf, timeout)?)
     }
+
+    pub fn get_usb_strings(&self) -> Result<(Option<String>, Option<String>, Option<String>)> {
+        let device = self.handle.device();
+        let descriptor = device
+            .device_descriptor()
+            .map_err(|e| RtlsdrErr(format!("Failed to read device descriptor: {e}")))?;
+
+        let read_string = |index: Option<u8>| -> Result<Option<String>> {
+            match index {
+                Some(i) => self
+                    .handle
+                    .read_string_descriptor_ascii(i)
+                    .map(Some)
+                    .map_err(|e| RtlsdrErr(format!("Failed to read string descriptor: {e}"))),
+                None => Ok(None),
+            }
+        };
+
+        let manufacturer = read_string(descriptor.manufacturer_string_index())?;
+        let product = read_string(descriptor.product_string_index())?;
+        let serial = read_string(descriptor.serial_number_string_index())?;
+
+        Ok((manufacturer, product, serial))
+    }
 }

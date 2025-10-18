@@ -61,6 +61,10 @@ The example is thoroughly documented to clearly show how to use this library, an
 ## Build Options
 This library includes the RTL-SDR Blog [modifications](https://github.com/rtlsdrblog/rtl-sdr-blog) to the original Osmocom library as a feature. Enable it in cargo with the `--features rtl_sdr_blog` flag.
 
+## Supported Tuners
+- Rafael Micro R820T
+- Rafael Micro R828D (automatically detects RTL-SDR Blog V4 upconverter behavior)
+
 ## Contributing
 Contributions to this project are welcome! Check out the [Issues page](https://github.com/ccostes/rtl-sdr-rs/issues) to see what's on the roadmap that you could help with, or open a new Issue.
 

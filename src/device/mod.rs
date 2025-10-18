@@ -147,6 +147,10 @@ impl Device {
         Ok(len)
     }
 
+    pub fn usb_strings(&self) -> Result<(Option<String>, Option<String>, Option<String>)> {
+        self.handle.get_usb_strings()
+    }
+
     pub fn i2c_read_reg(&self, i2c_addr: u8, reg: u8) -> Result<u8> {
         let addr: u16 = i2c_addr.into();
         let reg: [u8; 1] = [reg];

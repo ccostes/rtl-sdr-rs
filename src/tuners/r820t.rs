@@ -9,13 +9,22 @@ use crate::error::RtlsdrError::RtlsdrErr;
 use log::info;
 
 const R820T_I2C_ADDR: u16 = 0x34;
-// const R828D_I2C_ADDR: u8 = 0x74; for now only support the T
+const R828D_I2C_ADDR: u16 = 0x74;
+pub const R828D_XTAL_FREQ: u32 = 16_000_000;
 const VER_NUM: u8 = 49;
 pub const R82XX_IF_FREQ: u32 = 3570000;
 const NUM_REGS: usize = 32;
 const RW_REG_START: usize = 5; // registers 0-4 are read-only
 const NUM_CACHE_REGS: usize = NUM_REGS - RW_REG_START; // only cache RW regs
 const MAX_I2C_MSG_LEN: usize = 8;
+const R828D_INPUT_SWITCH_FREQ: u32 = 345_000_000;
+const BLOG_V4_UPCONVERT_FREQ: u32 = 28_800_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum R82xxChip {
+    R820T,
+    R828D,
+}
 
 // Init registers (32 total, first 5 are read-only)
 const REG_INIT: [u8; NUM_CACHE_REGS] = [
@@ -284,10 +293,9 @@ enum DeliverySystem {
 }
 
 #[derive(Debug)]
-pub struct R820T {
+pub struct R82xx {
     pub info: TunerInfo,
     regs: [u8; NUM_CACHE_REGS],
-    pub freq: u32,
     int_freq: u32,
     xtal_cap_sel: XtalCapValue,
     xtal: u32,
@@ -295,28 +303,44 @@ pub struct R820T {
     has_lock: bool,
     fil_cal_code: u8,
     init_done: bool,
+    chip: R82xxChip,
+    i2c_addr: u16,
+    is_blog_v4: bool,
+    last_input_sel: Option<u8>,
 }
 
-pub const TUNER_ID: &str = "r820t";
+pub const R820T_TUNER_ID: &str = "r820t";
+pub const R828D_TUNER_ID: &str = "r828d";
 
-pub const TUNER_INFO: TunerInfo = TunerInfo {
-    id: TUNER_ID,
+pub const R820T_TUNER_INFO: TunerInfo = TunerInfo {
+    id: R820T_TUNER_ID,
     name: "Rafael Micro R820T",
     i2c_addr: 0x34,
     check_addr: 0x00,
     check_val: 0x69,
-    // gains: vec![
-    //     0, 9, 14, 27, 37, 77, 87, 125, 144, 157, 166, 197, 207, 229, 254, 280, 297, 328, 338, 364,
-    //     372, 386, 402, 421, 434, 439, 445, 480, 496,
-    // ],
 };
 
-impl R820T {
-    pub fn new(_handle: &mut Device) -> R820T {
-        let tuner = R820T {
-            info: TUNER_INFO,
+pub const R828D_TUNER_INFO: TunerInfo = TunerInfo {
+    id: R828D_TUNER_ID,
+    name: "Rafael Micro R828D",
+    i2c_addr: 0x74,
+    check_addr: 0x00,
+    check_val: 0x69,
+};
+
+impl R82xx {
+    pub fn new_r820t() -> R82xx {
+        R82xx::new(R820T_TUNER_INFO, R82xxChip::R820T, false)
+    }
+
+    pub fn new_r828d(is_blog_v4: bool) -> R82xx {
+        R82xx::new(R828D_TUNER_INFO, R82xxChip::R828D, is_blog_v4)
+    }
+
+    fn new(info: TunerInfo, chip: R82xxChip, is_blog_v4: bool) -> R82xx {
+        R82xx {
+            info,
             regs: REG_INIT,
-            freq: 0,
             int_freq: 0,
             xtal_cap_sel: XtalCapValue::XtalLowCap30p,
             xtal: 0,
@@ -324,16 +348,23 @@ impl R820T {
             init_done: false,
             use_predetect: false,
             fil_cal_code: 0,
-        };
-        tuner
+            chip,
+            i2c_addr: match chip {
+                R82xxChip::R820T => R820T_I2C_ADDR,
+                R82xxChip::R828D => R828D_I2C_ADDR,
+            },
+            is_blog_v4,
+            last_input_sel: None,
+        }
     }
 }
 
-impl Tuner for R820T {
+impl Tuner for R82xx {
     // Combined from r820t_init and r82xx_init
     fn init(&mut self, handle: &Device) -> Result<()> {
         // TODO: set different I2C address and rafael_chip for R828D
         self.use_predetect = false;
+        self.last_input_sel = None;
 
         // <original>TODO: R828D might need r82xx_xtal_check()
         self.xtal_cap_sel = XtalCapValue::XtalHighCap0p;
@@ -418,12 +449,71 @@ impl Tuner for R820T {
 
     fn set_freq(&mut self, handle: &Device, freq: u32) -> Result<()> {
         info!("set_freq - freq: {}", freq);
-        let lo_freq = freq + self.int_freq;
+
+        let upconverted_freq = if self.is_blog_v4
+            && matches!(self.chip, R82xxChip::R828D)
+            && freq < BLOG_V4_UPCONVERT_FREQ
+        {
+            freq + BLOG_V4_UPCONVERT_FREQ
+        } else {
+            freq
+        };
+
+        let lo_freq = upconverted_freq + self.int_freq;
         info!("set_freq - lo_freq: {}", lo_freq);
         self.set_mux(handle, lo_freq)?;
         self.set_pll(handle, lo_freq)?;
 
-        // TODO: Some extra stuff for the 828D tuner when we support that
+        if matches!(self.chip, R82xxChip::R828D) {
+            if self.is_blog_v4 {
+                // determine if notch filters should be on or off notches are turned OFF when tuned within the notch band and ON when tuned outside the notch band.
+                let open_d = match freq {
+                    0..=2_200_000 | 85_000_000..=112_000_000 | 172_000_000..=242_000_000 => 0x00,
+                    _ => 0x08,
+                };
+                self.write_reg_mask(handle, 0x17, open_d, 0x08)?;
+
+                // select tuner band based on frequency and only switch if there is a band change
+                let band = match freq {
+                    0..=28_800_000 => 1, // HF
+                    28_800_001..=250_000_000 => 2, // VHF
+                    _ => 3, // UHF
+                };
+
+                // switch between tuner inputs on the RTL-SDR Blog V4
+                if self.last_input_sel != Some(band) {
+                    // activate cable 2 (HF input)
+                    let cable_2_in = if band == 1 { 0x08 } else { 0x00 };
+                    self.write_reg_mask(handle, 0x06, cable_2_in, 0x08)?;
+
+                    // Control upconverter GPIO switch on newer batches
+                    // TODO: tuner needs access to rtl_dev struct for this
+                    // rc = rtlsdr_set_bias_tee_gpio(priv->rtl_dev, 5, !cable_2_in);
+
+                    // activate cable 1 (VHF input)
+                    let cable_1_in = if band == 2 { 0x40 } else { 0x00 };
+                    self.write_reg_mask(handle, 0x05, cable_1_in, 0x40)?;
+
+                    // activate air_in (UHF input)
+                    let air_in = if band == 3 { 0x00 } else { 0x20 };
+                    self.write_reg_mask(handle, 0x05, air_in, 0x20)?;
+
+                    self.last_input_sel = Some(band);
+                }
+            } else {
+                let air_cable1_in = if freq > R828D_INPUT_SWITCH_FREQ {
+                    0x00
+                } else {
+                    0x60
+                };
+                if self.last_input_sel != Some(air_cable1_in) {
+                    self.write_reg_mask(handle, 0x05, air_cable1_in, 0x60)?;
+                    self.last_input_sel = Some(air_cable1_in);
+                }
+            }
+            
+        }
+
         Ok(())
     }
 
@@ -523,7 +613,7 @@ impl Tuner for R820T {
     }
 }
 
-impl R820T {
+impl R82xx {
     // Tuning logic
 
     fn set_mux(&mut self, handle: &Device, freq: u32) -> Result<()> {
@@ -606,8 +696,10 @@ impl R820T {
 
         let mut data: [u8; 5] = [0; 5];
         self.read_reg(handle, 0x00, &mut data, 5)?;
-        // TODO: if chip is R828D set vco_power_ref = 1
-        let vco_power_ref = 2;
+        let vco_power_ref = match self.chip {
+            R82xxChip::R828D => 1,
+            R82xxChip::R820T => 2,
+        };
         let vco_fine_tune = (data[4] & 0x30) >> 4;
         if vco_fine_tune > vco_power_ref {
             div_num = div_num - 1;
@@ -701,7 +793,7 @@ impl R820T {
         let mixer_top;
         let lna_top;
         let cp_cur;
-        let mut div_buf_cur;
+        let div_buf_cur;
         let lna_vth_l;
         let mixer_vth_l;
         let air_cable1_in;
@@ -1004,7 +1096,7 @@ impl R820T {
             let mut buf: Vec<u8> = vec![0; size + 1];
             buf[0] = reg_index as u8;
             buf[1..].copy_from_slice(&val[val_index..val_index + size]);
-            handle.i2c_write(R820T_I2C_ADDR, &buf)?;
+            handle.i2c_write(self.i2c_addr, &buf)?;
             val_index += size;
             reg_index += size;
             len -= size;
@@ -1018,8 +1110,8 @@ impl R820T {
     // (r82xx_read)
     fn read_reg(&self, handle: &Device, reg: usize, buf: &mut [u8], len: u8) -> Result<()> {
         assert!(buf.len() >= len as usize);
-        handle.i2c_write(R820T_I2C_ADDR, &[reg as u8])?;
-        handle.i2c_read(R820T_I2C_ADDR, buf, len)?;
+        handle.i2c_write(self.i2c_addr, &[reg as u8])?;
+        handle.i2c_read(self.i2c_addr, buf, len)?;
         // Need to reverse each byte...for some reason?
         for i in 0..buf.len() {
             buf[i] = bit_reverse(buf[i]);

@@ -7,7 +7,7 @@ use crate::device::Device;
 use crate::error::Result;
 use crate::TunerGain;
 
-pub const KNOWN_TUNERS: [TunerInfo; 1] = [r820t::TUNER_INFO];
+pub const KNOWN_TUNERS: [TunerInfo; 2] = [r820t::R820T_TUNER_INFO, r820t::R828D_TUNER_INFO];
 
 #[derive(Debug, Clone, Copy)]
 

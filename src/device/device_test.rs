@@ -42,6 +42,23 @@ fn test_read_reg_u8() {
 }
 
 #[test]
+fn test_usb_strings_delegates_to_handle() {
+    let mut mock_handle = MockDeviceHandle::new();
+    mock_handle
+        .expect_get_usb_strings()
+        .returning(|| Ok((Some("Make".to_string()), Some("Model".to_string()), None)));
+
+    let device = Device {
+        handle: mock_handle,
+    };
+
+    let (manufact, product, serial) = device.usb_strings().unwrap();
+    assert_eq!(manufact.as_deref(), Some("Make"));
+    assert_eq!(product.as_deref(), Some("Model"));
+    assert!(serial.is_none());
+}
+
+#[test]
 fn test_read_reg_u16() {
     let block = BLOCK_SYS;
     let index_expected = BLOCK_SYS << 8;
