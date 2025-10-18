@@ -2,12 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-pub mod r820t;
+pub mod r82xx;
 use crate::device::Device;
 use crate::error::Result;
 use crate::TunerGain;
 
-pub const KNOWN_TUNERS: [TunerInfo; 2] = [r820t::R820T_TUNER_INFO, r820t::R828D_TUNER_INFO];
+pub const KNOWN_TUNERS: [TunerInfo; 2] = [r82xx::R820T_TUNER_INFO, r82xx::R828D_TUNER_INFO];
 
 #[derive(Debug, Clone, Copy)]
 

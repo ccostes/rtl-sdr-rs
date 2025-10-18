@@ -9,7 +9,7 @@ use crate::device::{
 };
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
-use crate::tuners::r820t::{R82xx, R820T_TUNER_ID, R828D_TUNER_ID, R828D_XTAL_FREQ, R82XX_IF_FREQ};
+use crate::tuners::r82xx::{R82xx, R820T_TUNER_ID, R828D_TUNER_ID, R828D_XTAL_FREQ, R82XX_IF_FREQ};
 use crate::tuners::{NoTuner, Tuner, KNOWN_TUNERS};
 use log::{error, info};
 
