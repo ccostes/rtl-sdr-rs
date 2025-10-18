@@ -411,15 +411,6 @@ impl Tuner for R820T {
 
                 // Set mixer gain
                 self.write_reg_mask(handle, 0x07, mix_index, 0x0f)?;
-
-                // LNA
-                self.write_reg_mask(handle, 0x05, 0, 0x10)?;
-
-                // Mixer
-                self.write_reg_mask(handle, 0x07, 0x10, 0x10)?;
-
-                // Set fixed VGA gain for now (26.5dB)
-                self.write_reg_mask(handle, 0x0c, 0x0b, 0x9f)?;
             }
         }
         Ok(())
