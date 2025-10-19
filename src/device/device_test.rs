@@ -4,9 +4,9 @@
 
 use mockall::predicate::{self, eq};
 
-use crate::DeviceId;
 use crate::device::mock_device_handle::MockDeviceHandle;
 use crate::device::{Device, EEPROM_SIZE};
+use crate::DeviceId;
 
 use super::{BLOCK_IIC, BLOCK_SYS, CTRL_IN, CTRL_OUT, CTRL_TIMEOUT, EEPROM_ADDR, GPO};
 
@@ -202,12 +202,12 @@ fn test_read_eeprom_reads_expected_data() {
         .expect_write_control()
         .times(1)
         .with(
-            eq(CTRL_OUT),      // Direction of the control transfer
-            eq(0),             // Request value (typically 0 for these operations)
-            eq(EEPROM_ADDR),   // The address being accessed
+            eq(CTRL_OUT),                // Direction of the control transfer
+            eq(0),                       // Request value (typically 0 for these operations)
+            eq(EEPROM_ADDR),             // The address being accessed
             eq((BLOCK_IIC << 8) | 0x10), // Index value
-            eq([0]),          // Data being written, setting the offset
-            eq(CTRL_TIMEOUT),  // Timeout value
+            eq([0]),                     // Data being written, setting the offset
+            eq(CTRL_TIMEOUT),            // Timeout value
         )
         .returning(|_, _, _, _, _, _| Ok(1)); // Return success
 
@@ -246,7 +246,7 @@ fn test_read_eeprom_partial_read() {
             eq(0),
             eq(EEPROM_ADDR),
             eq((BLOCK_IIC << 8) | 0x10),
-            eq([0]),  // Setting the offset to 0
+            eq([0]), // Setting the offset to 0
             eq(CTRL_TIMEOUT),
         )
         .returning(|_, _, _, _, _, _| Ok(1));
@@ -255,7 +255,7 @@ fn test_read_eeprom_partial_read() {
     let expected_data = [0xAB, 0xCD];
     mock_handle
         .expect_read_control()
-        .times(expected_data.len())  // Expecting 2 calls, one for each byte
+        .times(expected_data.len()) // Expecting 2 calls, one for each byte
         .returning(move |_, _, _, _, buf, _| {
             static mut CALL_COUNT: usize = 0;
             let call_count = unsafe { CALL_COUNT };
@@ -286,7 +286,7 @@ fn test_read_eeprom_larger_buffer() {
             eq(0),
             eq(EEPROM_ADDR),
             eq((BLOCK_IIC << 8) | 0x10),
-            eq([0]),  // Setting the offset to 0
+            eq([0]), // Setting the offset to 0
             eq(CTRL_TIMEOUT),
         )
         .returning(|_, _, _, _, _, _| Ok(1));
@@ -295,7 +295,7 @@ fn test_read_eeprom_larger_buffer() {
     let expected_data = [0xDE, 0xAD];
     mock_handle
         .expect_read_control()
-        .times(expected_data.len())  // Expecting 2 calls, one for each byte
+        .times(expected_data.len()) // Expecting 2 calls, one for each byte
         .returning(move |_, _, _, _, buf, _| {
             static mut CALL_COUNT: usize = 0;
             let call_count = unsafe { CALL_COUNT };
@@ -308,9 +308,9 @@ fn test_read_eeprom_larger_buffer() {
         handle: mock_handle,
     };
     let mut data = [0xFF; 4];
-    device.read_eeprom(&mut data, 0, 2).unwrap();  // Reading only 2 bytes
-    assert_eq!(data[..2], expected_data);  // Verify the first 2 bytes
-    assert_eq!(data[2..], [0xFF, 0xFF]);  // Verify that the rest remain unchanged
+    device.read_eeprom(&mut data, 0, 2).unwrap(); // Reading only 2 bytes
+    assert_eq!(data[..2], expected_data); // Verify the first 2 bytes
+    assert_eq!(data[2..], [0xFF, 0xFF]); // Verify that the rest remain unchanged
 }
 
 #[test]
@@ -323,7 +323,9 @@ fn test_read_eeprom_invalid_offset() {
     let mut data = [0; 5];
     let data_len = data.len();
     // This should panic because the offset + length exceeds EEPROM_SIZE
-    device.read_eeprom(&mut data, EEPROM_SIZE as u8, data_len).unwrap();
+    device
+        .read_eeprom(&mut data, EEPROM_SIZE as u8, data_len)
+        .unwrap();
 }
 
 #[test]
@@ -331,13 +333,13 @@ fn test_device_id_enum_variants() {
     // Test that we can create DeviceId variants
     let index_device_id = DeviceId::Index(0);
     let fd_device_id = DeviceId::Fd(42);
-    
+
     // Test equality
     assert_eq!(index_device_id, DeviceId::Index(0));
     assert_eq!(fd_device_id, DeviceId::Fd(42));
     assert_ne!(index_device_id, fd_device_id);
-    
-    // Test debug representation 
+
+    // Test debug representation
     assert_eq!(format!("{:?}", index_device_id), "Index(0)");
     assert_eq!(format!("{:?}", fd_device_id), "Fd(42)");
 }

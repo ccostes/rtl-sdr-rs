@@ -21,6 +21,8 @@ rusb = "0.9"
 byteorder = "1"
 log = "0.4"
 mockall = "0.11"
+ctrlc = "3.2.3"
+stderrlog = "0.5"
 
 [dev-dependencies]
 rusb = "0.9"

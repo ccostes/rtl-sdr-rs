@@ -13,8 +13,8 @@ use device_handle::DeviceHandle;
 #[cfg(test)]
 use mock_device_handle::MockDeviceHandle as DeviceHandle;
 
-use crate::DeviceId;
 use crate::error::Result;
+use crate::DeviceId;
 use byteorder::{ByteOrder, LittleEndian};
 /// Low-level io functions for interfacing with rusb(libusb)
 use log::{error, info};
@@ -142,7 +142,7 @@ impl Device {
         assert!((len + offset as usize) <= EEPROM_SIZE);
         self.write_array(BLOCK_IIC, EEPROM_ADDR, &[offset], 1)?;
         for i in 0..len {
-            self.read_array(BLOCK_IIC, EEPROM_ADDR, &mut data[i..i+1], 1)?;
+            self.read_array(BLOCK_IIC, EEPROM_ADDR, &mut data[i..i + 1], 1)?;
         }
         Ok(len)
     }

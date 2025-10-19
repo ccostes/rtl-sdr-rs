@@ -475,9 +475,9 @@ impl Tuner for R82xx {
 
                 // select tuner band based on frequency and only switch if there is a band change
                 let band = match freq {
-                    0..=28_800_000 => 1, // HF
+                    0..=28_800_000 => 1,           // HF
                     28_800_001..=250_000_000 => 2, // VHF
-                    _ => 3, // UHF
+                    _ => 3,                        // UHF
                 };
 
                 // switch between tuner inputs on the RTL-SDR Blog V4
@@ -511,7 +511,6 @@ impl Tuner for R82xx {
                     self.last_input_sel = Some(air_cable1_in);
                 }
             }
-            
         }
 
         Ok(())

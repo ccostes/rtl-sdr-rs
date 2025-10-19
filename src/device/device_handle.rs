@@ -4,11 +4,11 @@
 
 use std::time::Duration;
 
-use crate::DeviceId;
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
-use rusb::{Context, UsbContext};
+use crate::DeviceId;
 use log::{error, info};
+use rusb::{Context, UsbContext};
 
 use super::KNOWN_DEVICES;
 #[derive(Debug)]
@@ -29,18 +29,18 @@ impl DeviceHandle {
         index: usize,
     ) -> Result<rusb::DeviceHandle<T>> {
         let devices = context.devices().map_err(|e| {
-            info!("Failed to get devices: {:?}", e);  // Logging with info!
+            info!("Failed to get devices: {:?}", e); // Logging with info!
             RtlsdrErr(format!("Error: {:?}", e))
         })?;
-    
+
         let mut device_count = 0;
-    
+
         // Iterate through the devices and check their descriptors
         for (i, found) in devices.iter().enumerate() {
             let device_desc = match found.device_descriptor() {
                 Ok(desc) => desc,
                 Err(e) => {
-                    info!("Failed to get device descriptor for device {}: {:?}", i, e);  // Logging with info!
+                    info!("Failed to get device descriptor for device {}: {:?}", i, e); // Logging with info!
                     continue;
                 }
             };
@@ -49,13 +49,15 @@ impl DeviceHandle {
                 if device_desc.vendor_id() == dev.vid && device_desc.product_id() == dev.pid {
                     info!(
                         "Found device at index {} Vendor ID = {:04x}, Product ID = {:04x}",
-                        i, device_desc.vendor_id(), device_desc.product_id()
+                        i,
+                        device_desc.vendor_id(),
+                        device_desc.product_id()
                     );
-    
+
                     if device_count == index {
-                        info!("Opening device at index {}", index);  // Logging with info!
+                        info!("Opening device at index {}", index); // Logging with info!
                         return found.open().map_err(|e| {
-                            info!("Failed to open device: {:?}", e);  // Logging with info!
+                            info!("Failed to open device: {:?}", e); // Logging with info!
                             RtlsdrErr(format!("Error: {:?}", e))
                         });
                     }
@@ -63,16 +65,13 @@ impl DeviceHandle {
                 }
             }
         }
-    
+
         info!(
             "No matching device found at the requested index {}. Total matched devices: {}",
             index, device_count
-        );  // Logging with info!
-    
-        Err(RtlsdrErr(format!(
-            "No device found at index {}",
-            index
-        )))
+        ); // Logging with info!
+
+        Err(RtlsdrErr(format!("No device found at index {}", index)))
     }
 
     #[cfg(unix)]
@@ -81,9 +80,9 @@ impl DeviceHandle {
         fd: i32,
     ) -> Result<rusb::DeviceHandle<T>> {
         use std::os::unix::io::RawFd;
-        
+
         info!("Opening device with file descriptor {}", fd);
-        
+
         unsafe {
             context.open_device_with_fd(fd as RawFd).map_err(|e| {
                 info!("Failed to open device with fd {}: {:?}", fd, e);
@@ -97,9 +96,11 @@ impl DeviceHandle {
         _context: &mut T,
         _fd: i32,
     ) -> Result<rusb::DeviceHandle<T>> {
-        Err(RtlsdrErr("File descriptor opening is only supported on Unix systems".to_string()))
+        Err(RtlsdrErr(
+            "File descriptor opening is only supported on Unix systems".to_string(),
+        ))
     }
-    
+
     pub fn claim_interface(&mut self, iface: u8) -> Result<()> {
         Ok(self.handle.claim_interface(iface)?)
     }
