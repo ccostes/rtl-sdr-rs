@@ -62,8 +62,19 @@ The example is thoroughly documented to clearly show how to use this library, an
 This library includes the RTL-SDR Blog [modifications](https://github.com/rtlsdrblog/rtl-sdr-blog) to the original Osmocom library as a feature. Enable it in cargo with the `--features rtl_sdr_blog` flag.
 
 ## Supported Tuners
-- Rafael Micro R820T
-- Rafael Micro R828D (automatically detects RTL-SDR Blog V4 upconverter behavior)
+
+- **Rafael Micro R820T**
+  - Common tuner found in RTL-SDR V3 and many DVB-T dongles
+  - Frequency range: 24 - 1766 MHz
+  
+- **Rafael Micro R828D**  
+  - Found in RTL-SDR Blog V4
+  - Frequency range: 24 - 1766 MHz
+  - Automatically detects RTL-SDR Blog V4 hardware via USB strings
+  - Blog V4 features:
+    - 28.8 MHz upconverter support with automatic frequency translation
+    - Automatic input switching for HF/VHF/UHF bands
+    - Notch filter control based on frequency
 
 ## Contributing
 Contributions to this project are welcome! Check out the [Issues page](https://github.com/ccostes/rtl-sdr-rs/issues) to see what's on the roadmap that you could help with, or open a new Issue.
