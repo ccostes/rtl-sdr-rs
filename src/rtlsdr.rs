@@ -586,4 +586,8 @@ impl RtlSdr {
     fn tuner_is_r82xx(tuner_id: &str) -> bool {
         matches!(tuner_id, R820T_TUNER_ID | R828D_TUNER_ID)
     }
+
+    pub fn get_tuner_id(&self) -> Result<&str> {
+        Ok(self.tuner.get_info()?.id)
+    }
 }

@@ -7,7 +7,7 @@
 //! The server streams raw I/Q samples to connected clients and accepts control
 //! commands to adjust frequency, sample rate, gain, and other device parameters.
 
-use rtl_sdr_rs::{DeviceId, DirectSampleMode, RtlSdr, TunerGain, DEFAULT_BUF_LENGTH};
+use rtl_sdr_rs::{DeviceId, DirectSampleMode, RtlSdr, TunerGain, DEFAULT_BUF_LENGTH, TunerId};
 use std::cmp;
 use std::env;
 use std::io::{self, Read, Write};
@@ -696,6 +696,13 @@ fn send_handshake(stream: &mut TcpStream, tuner_type: u32, gain_count: u32) -> i
     stream.write_all(&payload)
 }
 
-fn detect_tuner_type(_sdr: &RtlSdr) -> u32 {
-    6 // R828D
+fn detect_tuner_type(sdr: &RtlSdr) -> u32 {
+    match sdr.get_tuner_id() {
+        Ok(id) => match id {
+            TunerId::R820T => 5,
+            TunerId::R828D => 6,
+            _ => 0,
+        },
+        Err(_) => 0,
+    }
 }

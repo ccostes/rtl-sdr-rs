@@ -13,6 +13,13 @@ mod tuners;
 use device::Device;
 use error::Result;
 use rtlsdr::RtlSdr as Sdr;
+use tuners::r82xx::{R820T_TUNER_ID, R828D_TUNER_ID};
+
+pub struct TunerId;
+impl TunerId {
+    pub const R820T: &'static str = R820T_TUNER_ID;
+    pub const R828D: &'static str = R828D_TUNER_ID;
+}
 
 pub const DEFAULT_BUF_LENGTH: usize = 16 * 16384;
 
@@ -99,5 +106,8 @@ impl RtlSdr {
     }
     pub fn set_bias_tee(&self, on: bool) -> Result<()> {
         self.sdr.set_bias_tee(on)
+    }
+    pub fn get_tuner_id(&self) -> Result<&str> {
+        self.sdr.get_tuner_id()
     }
 }
