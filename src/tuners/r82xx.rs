@@ -19,6 +19,14 @@ const NUM_CACHE_REGS: usize = NUM_REGS - RW_REG_START; // only cache RW regs
 const MAX_I2C_MSG_LEN: usize = 8;
 const R828D_INPUT_SWITCH_FREQ: u32 = 345_000_000;
 const BLOG_V4_UPCONVERT_FREQ: u32 = 28_800_000;
+const BLOG_V4_NOTCH_OFF_BAND1_MAX: u32 = 2_200_000;
+const BLOG_V4_NOTCH_OFF_BAND2_MIN: u32 = 85_000_000;
+const BLOG_V4_NOTCH_OFF_BAND2_MAX: u32 = 112_000_000;
+const BLOG_V4_NOTCH_OFF_BAND3_MIN: u32 = 172_000_000;
+const BLOG_V4_NOTCH_OFF_BAND3_MAX: u32 = 242_000_000;
+const BLOG_V4_HF_MAX: u32 = 28_800_000;
+const BLOG_V4_VHF_MIN: u32 = 28_800_001;
+const BLOG_V4_VHF_MAX: u32 = 250_000_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum R82xxChip {
@@ -292,6 +300,13 @@ enum DeliverySystem {
     SysIsdbt,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TunerInput {
+    Cable1,
+    Cable2,
+    AirIn,
+}
+
 #[derive(Debug)]
 pub struct R82xx {
     pub info: TunerInfo,
@@ -306,7 +321,7 @@ pub struct R82xx {
     chip: R82xxChip,
     i2c_addr: u16,
     is_blog_v4: bool,
-    last_input_sel: Option<u8>,
+    last_input_sel: Option<TunerInput>,
 }
 
 pub const R820T_TUNER_ID: &str = "r820t";
@@ -468,22 +483,29 @@ impl Tuner for R82xx {
             if self.is_blog_v4 {
                 // determine if notch filters should be on or off notches are turned OFF when tuned within the notch band and ON when tuned outside the notch band.
                 let open_d = match freq {
-                    0..=2_200_000 | 85_000_000..=112_000_000 | 172_000_000..=242_000_000 => 0x00,
+                    0..=BLOG_V4_NOTCH_OFF_BAND1_MAX
+                    | BLOG_V4_NOTCH_OFF_BAND2_MIN..=BLOG_V4_NOTCH_OFF_BAND2_MAX
+                    | BLOG_V4_NOTCH_OFF_BAND3_MIN..=BLOG_V4_NOTCH_OFF_BAND3_MAX => 0x00,
                     _ => 0x08,
                 };
                 self.write_reg_mask(handle, 0x17, open_d, 0x08)?;
 
                 // select tuner band based on frequency and only switch if there is a band change
-                let band = match freq {
-                    0..=28_800_000 => 1,           // HF
-                    28_800_001..=250_000_000 => 2, // VHF
-                    _ => 3,                        // UHF
+                let input = match freq {
+                    0..=BLOG_V4_HF_MAX => TunerInput::Cable2,
+                    BLOG_V4_VHF_MIN..=BLOG_V4_VHF_MAX => TunerInput::Cable1,
+                    _ => TunerInput::AirIn,
                 };
 
                 // switch between tuner inputs on the RTL-SDR Blog V4
-                if self.last_input_sel != Some(band) {
+                if self.last_input_sel != Some(input) {
+                    let (cable_2_in, cable_1_in, air_in) = match input {
+                        TunerInput::Cable2 => (0x08, 0x00, 0x20),
+                        TunerInput::Cable1 => (0x00, 0x40, 0x20),
+                        TunerInput::AirIn => (0x00, 0x00, 0x00),
+                    };
+
                     // activate cable 2 (HF input)
-                    let cable_2_in = if band == 1 { 0x08 } else { 0x00 };
                     self.write_reg_mask(handle, 0x06, cable_2_in, 0x08)?;
 
                     // Control upconverter GPIO switch on newer batches
@@ -491,24 +513,26 @@ impl Tuner for R82xx {
                     // rc = rtlsdr_set_bias_tee_gpio(priv->rtl_dev, 5, !cable_2_in);
 
                     // activate cable 1 (VHF input)
-                    let cable_1_in = if band == 2 { 0x40 } else { 0x00 };
                     self.write_reg_mask(handle, 0x05, cable_1_in, 0x40)?;
 
                     // activate air_in (UHF input)
-                    let air_in = if band == 3 { 0x00 } else { 0x20 };
                     self.write_reg_mask(handle, 0x05, air_in, 0x20)?;
 
-                    self.last_input_sel = Some(band);
+                    self.last_input_sel = Some(input);
                 }
             } else {
-                let air_cable1_in = if freq > R828D_INPUT_SWITCH_FREQ {
-                    0x00
-                } else {
-                    0x60
+                let input = match freq {
+                    0..=R828D_INPUT_SWITCH_FREQ => TunerInput::Cable1,
+                    _ => TunerInput::AirIn,
                 };
-                if self.last_input_sel != Some(air_cable1_in) {
+                if self.last_input_sel != Some(input) {
+                    let air_cable1_in = match input {
+                        TunerInput::Cable1 => 0x60,
+                        TunerInput::AirIn => 0x00,
+                        _ => 0x00,
+                    };
                     self.write_reg_mask(handle, 0x05, air_cable1_in, 0x60)?;
-                    self.last_input_sel = Some(air_cable1_in);
+                    self.last_input_sel = Some(input);
                 }
             }
         }
