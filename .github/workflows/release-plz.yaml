@@ -21,6 +21,8 @@ jobs:
     # Used to push tags, and create releases.
     permissions:
       contents: write
+      # for trusted publishing
+      id-token: write
     steps:
       - &checkout
         name: Checkout repository
@@ -55,6 +57,8 @@ jobs:
     # Don't run on forks
     if: ${{ github.repository_owner == 'ccostes' }}
     permissions:
+      # for trusted publishing
+      id-token: write
       # Used to create and update pull requests.
       pull-requests: write
       # Used to push to the pull request branch.
