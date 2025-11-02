@@ -12,15 +12,14 @@ use core::alloc::Layout;
 use ctrlc;
 use log::info;
 use num_complex::Complex;
-use rtl_sdr_rs::{error::Result, RtlSdr, DEFAULT_BUF_LENGTH, DeviceId};
+use rtl_sdr_rs::{error::Result, DeviceId, RtlSdr, DEFAULT_BUF_LENGTH};
 use std::alloc::alloc_zeroed;
 use std::f64::consts::PI;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use std::time::{Instant, Duration};
-
+use std::time::{Duration, Instant};
 
 // Radio and demodulation config
 const FREQUENCY: u32 = 94_900_000; // Frequency in Hz, 91.1MHz WREK Atlanta
@@ -162,7 +161,11 @@ fn process(shutdown: &AtomicBool, demod_config: DemodConfig, rx: Receiver<Vec<u8
     // Print the final average loop time when shutting down
     if loop_count > 0 {
         let final_avg_time = total_time.as_nanos() / loop_count as u128;
-        info!("Average processing time: {:.2?}ms ({:?} loops)", final_avg_time as f32 / 1.0e6, loop_count);
+        info!(
+            "Average processing time: {:.2?}ms ({:?} loops)",
+            final_avg_time as f32 / 1.0e6,
+            loop_count
+        );
     }
 }
 
@@ -283,10 +286,10 @@ impl Demod {
                 tmp = 255 - buf[i + 3];
                 buf[i + 3] = buf[i + 2];
                 buf[i + 2] = tmp;
-    
+
                 buf[i + 4] = 255 - buf[i + 4];
                 buf[i + 5] = 255 - buf[i + 5];
-    
+
                 tmp = 255 - buf[i + 6];
                 buf[i + 6] = buf[i + 7];
                 buf[i + 7] = tmp;
@@ -301,8 +304,8 @@ impl Demod {
         // Process 16 bytes (two sets of 8 bytes) per iteration
         for i in (0..buf.len()).step_by(16) {
             // Load two 8-byte chunks into NEON vectors
-            let vec1 = vld1q_u8(&buf[i] as *const u8);      // First 8 bytes
-            let vec2 = vld1q_u8(&buf[i + 8] as *const u8);  // Next 8 bytes
+            let vec1 = vld1q_u8(&buf[i] as *const u8); // First 8 bytes
+            let vec2 = vld1q_u8(&buf[i + 8] as *const u8); // Next 8 bytes
 
             // Apply the transformation for the first 8 bytes
             let mut result1 = vec1;

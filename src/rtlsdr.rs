@@ -9,7 +9,7 @@ use crate::device::{
 };
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
-use crate::tuners::r820t::{R820T, R82XX_IF_FREQ, TUNER_ID};
+use crate::tuners::r82xx::{R82xx, R820T_TUNER_ID, R828D_TUNER_ID, R828D_XTAL_FREQ, R82XX_IF_FREQ};
 use crate::tuners::{NoTuner, Tuner, KNOWN_TUNERS};
 use log::{error, info};
 
@@ -69,23 +69,37 @@ impl RtlSdr {
         self.init_baseband()?;
         self.set_i2c_repeater(true)?;
 
-        self.tuner = {
-            let tuner_id = match self.search_tuner() {
-                Some(tid) => {
-                    info!("Got tuner ID {}", tid);
-                    tid
-                }
-                None => {
-                    panic!("Failed to find tuner, aborting");
-                }
-            };
-            match tuner_id {
-                TUNER_ID => Box::new(R820T::new(&mut self.handle)),
-                _ => panic!("Unable to find recognized tuner"),
+        let is_blog_v4 = self
+            .handle
+            .usb_strings()
+            .map(|(manufact, product, _)| {
+                matches!(manufact.as_deref(), Some("RTLSDRBlog"))
+                    && matches!(product.as_deref(), Some("Blog V4"))
+            })
+            .unwrap_or(false);
+
+        let tuner_id = match self.search_tuner() {
+            Some(tid) => {
+                info!("Got tuner ID {}", tid);
+                tid
+            }
+            None => {
+                panic!("Failed to find tuner, aborting");
             }
         };
-        // Use the RTL clock value by default
-        self.tuner_xtal = self.xtal;
+
+        let tuner: Box<dyn Tuner> = match tuner_id {
+            R820T_TUNER_ID => Box::new(R82xx::new_r820t()),
+            R828D_TUNER_ID => Box::new(R82xx::new_r828d(is_blog_v4)),
+            _ => panic!("Unable to find recognized tuner"),
+        };
+
+        self.tuner_xtal = match (tuner_id, is_blog_v4) {
+            (R828D_TUNER_ID, false) => R828D_XTAL_FREQ, // If NOT an RTL-SDR Blog V4, set typical R828D 16 MHz freq. Otherwise, keep at 28.8 MHz.
+            _ => self.xtal,
+        };
+
+        self.tuner = tuner;
         self.tuner.set_xtal_freq(self.get_tuner_xtal_freq())?;
 
         // disable Zero-IF mode
@@ -228,7 +242,7 @@ impl RtlSdr {
         let val = if self.bw > 0 { self.bw } else { self.rate };
         self.tuner.set_bandwidth(&self.handle, val, self.rate)?;
         self.set_i2c_repeater(false)?;
-        if self.tuner.get_info()?.id == TUNER_ID {
+        if Self::tuner_is_r82xx(self.tuner.get_info()?.id) {
             self.set_if_freq(self.tuner.get_if_freq()?)?;
             self.set_center_freq(self.freq)?;
         }
@@ -256,7 +270,7 @@ impl RtlSdr {
         self.set_i2c_repeater(true)?;
         self.tuner.set_bandwidth(&self.handle, bw, self.rate)?;
         self.set_i2c_repeater(false)?;
-        if self.tuner.get_info()?.id == TUNER_ID {
+        if Self::tuner_is_r82xx(self.tuner.get_info()?.id) {
             self.set_if_freq(self.tuner.get_if_freq()?)?;
             self.set_center_freq(self.freq)?;
         }
@@ -310,7 +324,7 @@ impl RtlSdr {
                 self.tuner.init(&self.handle)?;
                 self.set_i2c_repeater(false)?;
 
-                if self.tuner.get_info()?.id == TUNER_ID {
+                if Self::tuner_is_r82xx(self.tuner.get_info()?.id) {
                     // tuner init already does all this
                     // self.set_if_freq(R82XX_IF_FREQ);
                     // Enable spectrum inversion
@@ -567,5 +581,13 @@ impl RtlSdr {
             };
         }
         None
+    }
+
+    fn tuner_is_r82xx(tuner_id: &str) -> bool {
+        matches!(tuner_id, R820T_TUNER_ID | R828D_TUNER_ID)
+    }
+
+    pub fn get_tuner_id(&self) -> Result<&str> {
+        Ok(self.tuner.get_info()?.id)
     }
 }
