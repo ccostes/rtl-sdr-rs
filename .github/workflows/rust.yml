@@ -11,12 +11,35 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "default"
+            features: ""
+          - name: "rtl_sdr_blog"
+            features: "rtl_sdr_blog"
+          - name: "disable-simd"
+            features: "disable-simd"
+          - name: "all features"
+            features: "rtl_sdr_blog,disable-simd"
+    
     steps:
     - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+    - name: Build (${{ matrix.name }})
+      run: |
+        FEATURES="${{ matrix.features }}"
+        if [ -n "$FEATURES" ]; then
+          cargo build --verbose --features "$FEATURES"
+        else
+          cargo build --verbose
+        fi
+    - name: Run tests (${{ matrix.name }})
+      run: |
+        FEATURES="${{ matrix.features }}"
+        if [ -n "$FEATURES" ]; then
+          cargo test --verbose --features "$FEATURES"
+        else
+          cargo test --verbose
+        fi
