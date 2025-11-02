@@ -816,7 +816,6 @@ impl R82xx {
         let mixer_top;
         let lna_top;
         let cp_cur;
-        let div_buf_cur;
         let lna_vth_l;
         let mixer_vth_l;
         let air_cable1_in;
@@ -831,12 +830,10 @@ impl R82xx {
                     mixer_top = 0x14; /* mixer top:14 , top-1, low-discharge */
                     lna_top = 0xe5; /* detect bw 3, lna top:4, predet top:2 */
                     cp_cur = 0x28; /* 101, 0.2 */
-                    div_buf_cur = 0x20; /* 10, 200u */
                 } else {
                     mixer_top = 0x24; /* mixer top:13 , top-1, low-discharge */
                     lna_top = 0xe5; /* detect bw 3, lna top:4, predet top:2 */
                     cp_cur = 0x38; /* 111, auto */
-                    div_buf_cur = 0x30; /* 11, 150u */
                 }
                 lna_vth_l = 0x53; /* lna vth 0.84	,  vtl 0.64 */
                 mixer_vth_l = 0x75; /* mixer vth 1.04, vtl 0.84 */
@@ -856,7 +853,6 @@ impl R82xx {
                 pre_dect = 0x40;
                 lna_discharge = 14;
                 cp_cur = 0x38; /* 111, auto */
-                div_buf_cur = 0x30; /* 11, 150u */
                 filter_cur = 0x40; /* 10, low */
             }
             DeliverySystem::SysIsdbt => {
@@ -869,7 +865,6 @@ impl R82xx {
                 pre_dect = 0x40;
                 lna_discharge = 14;
                 cp_cur = 0x38; /* 111, auto */
-                div_buf_cur = 0x30; /* 11, 150u */
                 filter_cur = 0x40; /* 10, low */
             }
             DeliverySystem::SysUndefined => {
@@ -883,7 +878,6 @@ impl R82xx {
                 pre_dect = 0x40;
                 lna_discharge = 14;
                 cp_cur = 0x38; /* 111, auto */
-                div_buf_cur = 0x30; /* 11, 150u */
                 filter_cur = 0x40; /* 10, low */
             }
         }
@@ -900,11 +894,26 @@ impl R82xx {
         self.write_reg_mask(handle, 0x06, cable2_in, 0x08)?;
         self.write_reg_mask(handle, 0x11, cp_cur, 0x38)?;
 
-        // RTLSDRBLOG. Improve L-band performance by setting PLL drop out to 2.0v
-        #[cfg(feature = "rtl_sdr_blog")]
-        {
-            div_buf_cur = 0xa0;
-        }
+        let div_buf_cur = {
+            #[cfg(feature = "rtl_sdr_blog")]
+            {
+                // RTLSDRBLOG. Improve L-band performance by setting PLL drop out to 2.0v
+                0xa0
+            }
+            #[cfg(not(feature = "rtl_sdr_blog"))]
+            {
+                match delivery_system {
+                    DeliverySystem::SysDvbt => {
+                        if (freq == 506000000) || (freq == 666000000) || (freq == 818000000) {
+                            0x20 /* 10, 200u */
+                        } else {
+                            0x30 /* 11, 150u */
+                        }
+                    }
+                    _ => 0x30,
+                }
+            }
+        };
 
         self.write_reg_mask(handle, 0x17, div_buf_cur, 0x30)?;
         self.write_reg_mask(handle, 0x0a, filter_cur, 0x60)?;
