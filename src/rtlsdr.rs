@@ -143,6 +143,13 @@ impl RtlSdr {
         self.tuner.get_gains()
     }
 
+    pub fn read_tuner_gain(&self) -> Result<i32> {
+        self.set_i2c_repeater(true)?;
+        let gain = self.tuner.read_gain(&self.handle)?;
+        self.set_i2c_repeater(false)?;
+        Ok(gain)
+    }
+
     // TunerGain has mode and gain, so this replaces rtlsdr_set_tuner_gain_mode
     pub fn set_tuner_gain(&mut self, gain: TunerGain) -> Result<()> {
         self.set_i2c_repeater(true)?;
