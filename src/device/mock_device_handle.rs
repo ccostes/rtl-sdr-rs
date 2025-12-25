@@ -12,7 +12,7 @@ use std::time::Duration;
 mock! {
     #[derive(Debug)]
     pub DeviceHandle {
-        pub fn open(device_id: DeviceId) -> Result<Self>;
+        pub fn open<'a>(device_id: DeviceId<'a>) -> Result<Self>;
         pub fn claim_interface(&mut self, iface: u8) -> Result<()>;
         pub fn reset(&mut self) -> Result<()>;
         pub fn read_control(

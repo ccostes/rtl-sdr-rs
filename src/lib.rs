@@ -11,7 +11,7 @@ mod rtlsdr;
 mod tuners;
 
 use device::Device;
-use error::{Result, RtlsdrError::RtlsdrErr};
+use error::Result;
 use rtlsdr::RtlSdr as Sdr;
 use rusb::{Context, DeviceHandle, DeviceList, UsbContext};
 use tuners::r82xx::{R820T_TUNER_ID, R828D_TUNER_ID};
@@ -25,7 +25,6 @@ impl TunerId {
 pub const DEFAULT_BUF_LENGTH: usize = 16 * 16384;
 
 pub struct DeviceDescriptors {
-    _context: Context,
     list: DeviceList<Context>,
 }
 
@@ -43,10 +42,7 @@ impl DeviceDescriptors {
     pub fn new() -> Result<Self> {
         let context = Context::new()?;
         let list = context.devices()?;
-        Ok(Self {
-            _context: context,
-            list,
-        })
+        Ok(Self { list })
     }
 
     /// Returns an iterator over the found RTL-SDR devices.
@@ -55,14 +51,7 @@ impl DeviceDescriptors {
             .iter()
             .filter_map(|device| {
                 let desc = device.device_descriptor().ok()?;
-                if crate::device::constants::KNOWN_DEVICES
-                    .iter()
-                    .any(|d| d.vid == desc.vendor_id() && d.pid == desc.product_id())
-                {
-                    Some(device)
-                } else {
-                    None
-                }
+                device::is_known_device(desc.vendor_id(), desc.product_id()).then_some(device)
             })
             .enumerate()
             .filter_map(|(index, device)| {
@@ -98,8 +87,9 @@ fn read_string<T: UsbContext>(handle: &DeviceHandle<T>, index: Option<u8>) -> St
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum DeviceId {
+pub enum DeviceId<'a> {
     Index(usize),
+    Serial(&'a str),
     Fd(i32),
 }
 
@@ -141,13 +131,7 @@ impl RtlSdr {
     }
 
     pub fn open_with_serial(serial: &str) -> Result<RtlSdr> {
-        let index = DeviceDescriptors::new()?
-            .iter()
-            .find(|d| d.serial == serial)
-            .map(|d| d.index)
-            .ok_or_else(|| RtlsdrErr(format!("No device with serial '{}' found", serial)))?;
-
-        Self::open(DeviceId::Index(index))
+        Self::open(DeviceId::Serial(serial))
     }
 
     /// Convenience function to open device by index (backward compatibility)
@@ -177,6 +161,9 @@ impl RtlSdr {
     }
     pub fn get_tuner_gains(&self) -> Result<Vec<i32>> {
         self.sdr.get_tuner_gains()
+    }
+    pub fn read_tuner_gain(&self) -> Result<i32> {
+        self.sdr.read_tuner_gain()
     }
     pub fn set_tuner_gain(&mut self, gain: TunerGain) -> Result<()> {
         self.sdr.set_tuner_gain(gain)
@@ -220,10 +207,7 @@ impl RtlSdr {
             Sensor::TunerType => self
                 .get_tuner_id()
                 .map(|s| SensorValue::TunerType(s.to_string())),
-            Sensor::TunerGainDb => self
-                .sdr
-                .read_tuner_gain()
-                .map(SensorValue::TunerGainDb),
+            Sensor::TunerGainDb => self.sdr.read_tuner_gain().map(SensorValue::TunerGainDb),
             Sensor::FrequencyCorrectionPpm => Ok(SensorValue::FrequencyCorrectionPpm(
                 self.get_freq_correction(),
             )),

@@ -10,6 +10,11 @@ use crate::DeviceId;
 use log::info;
 use rusb::{Context, UsbContext};
 
+enum UsbSelector<'a> {
+    Index(usize),
+    Serial(&'a str),
+}
+
 #[derive(Debug)]
 pub struct DeviceHandle {
     handle: rusb::DeviceHandle<Context>,
@@ -17,33 +22,75 @@ pub struct DeviceHandle {
 impl DeviceHandle {
     pub fn open(device_id: DeviceId) -> Result<Self> {
         let mut context = Context::new()?;
-        let handle = match device_id {
-            DeviceId::Index(index) => DeviceHandle::open_device(&mut context, index)?,
-            DeviceId::Fd(fd) => DeviceHandle::open_device_with_fd(&mut context, fd)?,
-        };
-        Ok(DeviceHandle { handle })
-    }
-    pub fn open_device<T: UsbContext>(
-        context: &mut T,
-        index: usize,
-    ) -> Result<rusb::DeviceHandle<T>> {
-        let devices = context.devices()?;
-        let mut rtl_devices = devices.iter().filter(|device| {
-            if let Ok(desc) = device.device_descriptor() {
-                crate::device::constants::KNOWN_DEVICES
-                    .iter()
-                    .any(|d| d.vid == desc.vendor_id() && d.pid == desc.product_id())
-            } else {
-                false
+        match device_id {
+            DeviceId::Fd(fd) => DeviceHandle::open_device_with_fd(&mut context, fd),
+            DeviceId::Index(idx) => {
+                DeviceHandle::open_from_usb(&mut context, UsbSelector::Index(idx))
             }
-        });
+            DeviceId::Serial(s) => {
+                DeviceHandle::open_from_usb(&mut context, UsbSelector::Serial(s))
+            }
+        }
+        .map(|handle| DeviceHandle { handle })
+    }
 
-        let device_to_open = rtl_devices
-            .nth(index)
-            .ok_or_else(|| RtlsdrErr(format!("No device found at index {}", index)))?;
-        
-        info!("Opening device at index {}", index);
-        Ok(device_to_open.open()?)
+    fn open_from_usb(
+        context: &mut Context,
+        selector: UsbSelector,
+    ) -> Result<rusb::DeviceHandle<Context>> {
+        let devices = context.devices().map_err(|e| {
+            info!("Failed to get devices: {:?}", e);
+            RtlsdrErr(format!("Error: {:?}", e))
+        })?;
+
+        let mut current_idx = 0;
+
+        for device in devices.iter() {
+            let desc = match device.device_descriptor() {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+
+            if !crate::device::is_known_device(desc.vendor_id(), desc.product_id()) {
+                continue;
+            }
+
+            match selector {
+                UsbSelector::Index(target_idx) => {
+                    if current_idx == target_idx {
+                        info!("Opening device at index {}", target_idx);
+                        return device.open().map_err(|e| {
+                            info!("Failed to open device: {:?}", e);
+                            RtlsdrErr(format!("Error: {:?}", e))
+                        });
+                    }
+                    current_idx += 1;
+                }
+                UsbSelector::Serial(target_serial) => match device.open() {
+                    Ok(handle) => {
+                        let sn_index = desc.serial_number_string_index();
+                        if let Some(idx) = sn_index {
+                            if let Ok(s) = handle.read_string_descriptor_ascii(idx) {
+                                if s == *target_serial {
+                                    info!("Opening device with serial {}", target_serial);
+                                    return Ok(handle);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        info!("Failed to check serial on candidate device: {:?}", e);
+                    }
+                },
+            }
+        }
+
+        let msg = match selector {
+            UsbSelector::Index(i) => format!("No device found at index {}", i),
+            UsbSelector::Serial(s) => format!("No device found with serial {}", s),
+        };
+
+        Err(RtlsdrErr(msg))
     }
 
     #[cfg(unix)]
