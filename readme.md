@@ -43,18 +43,67 @@ let sdr = RtlSdr::open_with_fd(fd)?;
 ```
 
 See the [demo_device_id example](examples/demo_device_id.rs) for a complete demonstration of all opening methods.
-### Uload Kernel Modules
-If the RTL kernel modules are installed you will need to temporarily unload them before using this library as follows:
+
+### Device Enumeration
+
+List and identify devices before opening them:
+
+```rust
+// List all connected RTL-SDR devices
+let devices = RtlSdr::list_devices()?;
+for device in devices {
+    println!("Device {}: Serial {}", device.index, device.serial);
+}
+
+// Open by serial number (great for multi-device setups!)
+let sdr = RtlSdr::open_with_serial("00000001")?;
+
+// Or just open the first available device
+let sdr = RtlSdr::open_first_available()?;
 ```
-sudo rmmod rtl2832_sdr
-sudo rmmod dvb_usb_rtl28xxu
-sudo rmmod rtl2832
-sudo rmmod rtl8xxxu
+
+See the [device_list example](examples/device_list.rs) for a complete working demonstration.
+
+### Linux: Kernel Modules
+
+**⚠️ Linux users:** If you get a `Usb(Busy)` error, the DVB-T kernel modules need to be unloaded:
+
+```bash
+sudo rmmod rtl2832_sdr dvb_usb_rtl28xxu rtl2832 rtl8xxxu
 ```
-Failure to do so will result in the following USB error:
+
+**Why?** RTL-SDR dongles are detected as DVB-T TV receivers by Linux. The kernel modules claim exclusive USB access, preventing userspace applications (like this library) from accessing the device.
+
+**Solutions:**
+
+**Temporary:** Run the `rmmod` commands above before each use. Note that modules will reload on next device plug or system reboot.
+
+**Permanent (Linux):** Blacklist the modules to prevent them from loading automatically. Create `/etc/modprobe.d/blacklist-rtlsdr.conf`:
+
+```bash
+# Blacklist RTL-SDR DVB-T kernel drivers to allow userspace access
+blacklist dvb_usb_rtl28xxu
+blacklist rtl2832
+blacklist rtl2832_sdr
+blacklist rtl8xxxu
 ```
-thread 'main' panicked at 'Unable to open SDR device!: Usb(Busy)'
+
+Then update initramfs and reboot:
+```bash
+# Debian/Ubuntu:
+sudo update-initramfs -u
+
+# RHEL/Fedora/CentOS:
+sudo dracut --force
+
+# Arch:
+sudo mkinitcpio -P
+
+# Then reboot
+sudo reboot
 ```
+
+**Alternative:** Use [SoapySDR](https://github.com/pothosware/SoapySDR) which works with the kernel's DVB-T driver interface (`/dev/dvb/*` device nodes) instead of bypassing it. This allows it to work with kernel modules loaded, but adds abstraction layers that can impact performance. SoapySDR is best for end-user applications where you can't unload modules, while this library provides better performance and full hardware control when modules are unloaded.
 
 The example is thoroughly documented to clearly show how to use this library, and hopefully make the FM demodulation process understandable too!
 
