@@ -7,10 +7,14 @@ use std::time::Duration;
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
 use crate::DeviceId;
-use log::{error, info};
+use log::info;
 use rusb::{Context, UsbContext};
 
-use super::KNOWN_DEVICES;
+enum UsbSelector<'a> {
+    Index(usize),
+    Serial(&'a str),
+}
+
 #[derive(Debug)]
 pub struct DeviceHandle {
     handle: rusb::DeviceHandle<Context>,
@@ -18,60 +22,75 @@ pub struct DeviceHandle {
 impl DeviceHandle {
     pub fn open(device_id: DeviceId) -> Result<Self> {
         let mut context = Context::new()?;
-        let handle = match device_id {
-            DeviceId::Index(index) => DeviceHandle::open_device(&mut context, index)?,
-            DeviceId::Fd(fd) => DeviceHandle::open_device_with_fd(&mut context, fd)?,
-        };
-        Ok(DeviceHandle { handle: handle })
+        match device_id {
+            DeviceId::Fd(fd) => DeviceHandle::open_device_with_fd(&mut context, fd),
+            DeviceId::Index(idx) => {
+                DeviceHandle::open_from_usb(&mut context, UsbSelector::Index(idx))
+            }
+            DeviceId::Serial(s) => {
+                DeviceHandle::open_from_usb(&mut context, UsbSelector::Serial(s))
+            }
+        }
+        .map(|handle| DeviceHandle { handle })
     }
-    pub fn open_device<T: UsbContext>(
-        context: &mut T,
-        index: usize,
-    ) -> Result<rusb::DeviceHandle<T>> {
+
+    fn open_from_usb(
+        context: &mut Context,
+        selector: UsbSelector,
+    ) -> Result<rusb::DeviceHandle<Context>> {
         let devices = context.devices().map_err(|e| {
-            info!("Failed to get devices: {:?}", e); // Logging with info!
+            info!("Failed to get devices: {:?}", e);
             RtlsdrErr(format!("Error: {:?}", e))
         })?;
 
-        let mut device_count = 0;
+        let mut current_idx = 0;
 
-        // Iterate through the devices and check their descriptors
-        for (i, found) in devices.iter().enumerate() {
-            let device_desc = match found.device_descriptor() {
-                Ok(desc) => desc,
-                Err(e) => {
-                    info!("Failed to get device descriptor for device {}: {:?}", i, e); // Logging with info!
-                    continue;
-                }
+        for device in devices.iter() {
+            let desc = match device.device_descriptor() {
+                Ok(d) => d,
+                Err(_) => continue,
             };
 
-            for dev in KNOWN_DEVICES.iter() {
-                if device_desc.vendor_id() == dev.vid && device_desc.product_id() == dev.pid {
-                    info!(
-                        "Found device at index {} Vendor ID = {:04x}, Product ID = {:04x}",
-                        i,
-                        device_desc.vendor_id(),
-                        device_desc.product_id()
-                    );
+            if !crate::device::is_known_device(desc.vendor_id(), desc.product_id()) {
+                continue;
+            }
 
-                    if device_count == index {
-                        info!("Opening device at index {}", index); // Logging with info!
-                        return found.open().map_err(|e| {
-                            info!("Failed to open device: {:?}", e); // Logging with info!
+            match selector {
+                UsbSelector::Index(target_idx) => {
+                    if current_idx == target_idx {
+                        info!("Opening device at index {}", target_idx);
+                        return device.open().map_err(|e| {
+                            info!("Failed to open device: {:?}", e);
                             RtlsdrErr(format!("Error: {:?}", e))
                         });
                     }
-                    device_count += 1;
+                    current_idx += 1;
                 }
+                UsbSelector::Serial(target_serial) => match device.open() {
+                    Ok(handle) => {
+                        let sn_index = desc.serial_number_string_index();
+                        if let Some(idx) = sn_index {
+                            if let Ok(s) = handle.read_string_descriptor_ascii(idx) {
+                                if s == *target_serial {
+                                    info!("Opening device with serial {}", target_serial);
+                                    return Ok(handle);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        info!("Failed to check serial on candidate device: {:?}", e);
+                    }
+                },
             }
         }
 
-        info!(
-            "No matching device found at the requested index {}. Total matched devices: {}",
-            index, device_count
-        ); // Logging with info!
+        let msg = match selector {
+            UsbSelector::Index(i) => format!("No device found at index {}", i),
+            UsbSelector::Serial(s) => format!("No device found with serial {}", s),
+        };
 
-        Err(RtlsdrErr(format!("No device found at index {}", index)))
+        Err(RtlsdrErr(msg))
     }
 
     #[cfg(unix)]

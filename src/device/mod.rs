@@ -23,6 +23,10 @@ use std::time::Duration;
 #[cfg(test)]
 mod device_test;
 
+pub fn is_known_device(vid: u16, pid: u16) -> bool {
+    KNOWN_DEVICES.iter().any(|d| d.vid == vid && d.pid == pid)
+}
+
 #[derive(Debug)]
 pub struct Device {
     handle: DeviceHandle,
