@@ -11,7 +11,7 @@ mod rtlsdr;
 mod tuners;
 
 use device::Device;
-use error::Result;
+use error::{Result, RtlsdrError};
 use rtlsdr::RtlSdr as Sdr;
 use rusb::{Context, DeviceHandle, DeviceList, UsbContext};
 use tuners::r82xx::{R820T_TUNER_ID, R828D_TUNER_ID};
@@ -212,5 +212,44 @@ impl RtlSdr {
                 self.get_freq_correction(),
             )),
         }
+    }
+
+    /// Get the number of available RTL-SDR devices
+    pub fn get_device_count() -> Result<usize> {
+        let descriptors = DeviceDescriptors::new()?;
+        Ok(descriptors.iter().count())
+    }
+
+    /// List all available RTL-SDR devices
+    pub fn list_devices() -> Result<Vec<DeviceDescriptor>> {
+        let descriptors = DeviceDescriptors::new()?;
+        Ok(descriptors.iter().collect())
+    }
+
+    /// Open the first available RTL-SDR device
+    pub fn open_first_available() -> Result<RtlSdr> {
+        let descriptors = DeviceDescriptors::new()?;
+        let first_device = descriptors
+            .iter()
+            .next()
+            .ok_or_else(|| RtlsdrError::RtlsdrErr("No RTL-SDR devices found".to_string()))?;
+        Self::open_with_index(first_device.index)
+    }
+
+    /// Get device information for a specific device by index
+    pub fn get_device_info(index: usize) -> Result<DeviceDescriptor> {
+        let descriptors = DeviceDescriptors::new()?;
+        let devices: Vec<DeviceDescriptor> = descriptors.iter().collect();
+        devices
+            .into_iter()
+            .find(|d| d.index == index)
+            .ok_or_else(|| {
+                RtlsdrError::RtlsdrErr(format!("No device found at index {}", index))
+            })
+    }
+
+    /// Get the serial number for a specific device by index
+    pub fn get_device_serial(index: usize) -> Result<String> {
+        Self::get_device_info(index).map(|info| info.serial)
     }
 }

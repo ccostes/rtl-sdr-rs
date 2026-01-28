@@ -2,8 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use std::{fmt, result};
-// use std::error::Error;
+use std::{error, fmt, result};
 
 /// A result of a function that may return a `Error`.
 pub type Result<T> = result::Result<T, RtlsdrError>;
@@ -43,3 +42,12 @@ define_errcodes![
     Usb : rusb::Error,
     RtlsdrErr: String
 ];
+
+impl error::Error for RtlsdrError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            RtlsdrError::Usb(e) => Some(e),
+            RtlsdrError::RtlsdrErr(_) => None,
+        }
+    }
+}
