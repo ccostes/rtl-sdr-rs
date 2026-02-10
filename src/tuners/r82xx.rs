@@ -669,7 +669,7 @@ impl R82xx {
         let val = match self.xtal_cap_sel {
             XtalCapValue::XtalLowCap30p | XtalCapValue::XtalLowCap20p => range.xtal_cap20p | 0x08,
             XtalCapValue::XtalLowCap10p => range.xtal_cap10p | 0x08,
-            XtalCapValue::XtalHighCap0p => range.xtal_cap0p | 0x00,
+            XtalCapValue::XtalHighCap0p => range.xtal_cap0p,
             XtalCapValue::XtalLowCap0p => range.xtal_cap0p | 0x08,
         };
         self.write_reg_mask(handle, 0x10, val, 0x0b)?;
@@ -709,12 +709,12 @@ impl R82xx {
             if ((freq_khz * mix_div as u32) >= vco_min) && ((freq_khz * mix_div as u32) < vco_max) {
                 let mut div_buf = mix_div;
                 while div_buf > 2 {
-                    div_buf = div_buf >> 1;
+                    div_buf >>= 1;
                     div_num += 1;
                 }
                 break;
             }
-            mix_div = mix_div << 1;
+            mix_div <<= 1;
         }
 
         let mut data: [u8; 5] = [0; 5];
@@ -725,9 +725,9 @@ impl R82xx {
         };
         let vco_fine_tune = (data[4] & 0x30) >> 4;
         if vco_fine_tune > vco_power_ref {
-            div_num = div_num - 1;
+            div_num -= 1;
         } else if vco_fine_tune < vco_power_ref {
-            div_num = div_num + 1;
+            div_num += 1;
         }
         self.write_reg_mask(handle, 0x10, div_num << 5, 0xe0)?;
 
@@ -770,13 +770,13 @@ impl R82xx {
         let mut n_sdm = 2;
         while vco_fra > 1 {
             if vco_fra > (2 * pll_ref_khz / n_sdm) {
-                sdm = sdm + 32768 / (n_sdm / 2);
-                vco_fra = vco_fra - 2 * pll_ref_khz / n_sdm;
+                sdm += 32768 / (n_sdm / 2);
+                vco_fra -= 2 * pll_ref_khz / n_sdm;
                 if n_sdm >= 0x8000 {
                     break;
                 }
             }
-            n_sdm = n_sdm << 1;
+            n_sdm <<= 1;
         }
         self.write_regs(handle, 0x16, &[(sdm >> 8) as u8])?;
         self.write_regs(handle, 0x15, &[(sdm & 0xff) as u8])?;
@@ -1015,7 +1015,7 @@ impl R82xx {
                 let mut data: [u8; 5] = [0; 5];
                 self.read_reg(handle, 0x00, &mut data, 5)?;
                 self.fil_cal_code = data[4] & 0x0f;
-                if self.fil_cal_code & self.fil_cal_code != 0x0f {
+                if self.fil_cal_code != 0x0f {
                     break;
                 }
                 // Narrowest
@@ -1072,7 +1072,7 @@ impl R82xx {
         self.write_reg_mask(handle, 0x13, 0x00, 0x40)?;
 
         // Try several xtal capacitor alternatives
-        for cap_val in XTAL_CAPACITOR_VALUES.iter() {
+        for cap_val in &XTAL_CAPACITOR_VALUES {
             self.write_reg_mask(handle, 0x10, *cap_val, 0x1b)?;
             self.read_reg(handle, 0x00, &mut data, 3)?;
             if data[2] & 0x40 == 0 {
@@ -1080,13 +1080,11 @@ impl R82xx {
             }
 
             let val = data[2] & 0x3f;
-            if (self.xtal == 16_000_000 && (val > 29 || val < 23)) || val != 0x3f {
+            if (self.xtal == 16_000_000 && !(23..=29).contains(&val)) || val != 0x3f {
                 return Ok(*cap_val);
             }
         }
-        Err(RtlsdrErr(format!(
-            "Unable to find good xtal capacitor value!"
-        )))
+        Err(RtlsdrErr("Unable to find good xtal capacitor value!".to_string()))
     }
 
     /// Write register with bit-masked data
@@ -1095,7 +1093,7 @@ impl R82xx {
         // Compute the desired register value: (rc & !mask) gets the unmasked bits and leaves the masked as 0,
         // and (val & mask) gets just the masked bits we want to set. Or together to get the desired register.
         let applied: u8 = (rc & !bit_mask) | (val & bit_mask);
-        Ok(self.write_regs(handle, reg, &[applied])?)
+        self.write_regs(handle, reg, &[applied])
     }
 
     /// Read register data from local cache
@@ -1131,8 +1129,8 @@ impl R82xx {
             handle.i2c_write(self.i2c_addr, &buf)?;
             val_index += size;
             reg_index += size;
-            len -= size;
-            if len <= 0 {
+            len = len.checked_sub(size).expect("Should not overflow");
+            if len == 0 {
                 break;
             }
         }
@@ -1141,12 +1139,12 @@ impl R82xx {
 
     // (r82xx_read)
     fn read_reg(&self, handle: &Device, reg: usize, buf: &mut [u8], len: u8) -> Result<()> {
-        assert!(buf.len() >= len as usize);
+        assert!(buf.len() >= usize::from(len));
         handle.i2c_write(self.i2c_addr, &[reg as u8])?;
         handle.i2c_read(self.i2c_addr, buf, len)?;
         // Need to reverse each byte...for some reason?
-        for i in 0..buf.len() {
-            buf[i] = bit_reverse(buf[i]);
+        for byte in buf {
+            *byte = bit_reverse(*byte);
         }
         Ok(())
     }
@@ -1155,7 +1153,7 @@ impl R82xx {
     /// Will panic if reg < RW_REG_START or (reg + len) > NUM_CACHE_REGS + 1
     fn reg_cache_store(&mut self, mut reg: usize, val: &[u8]) {
         assert!(reg >= RW_REG_START);
-        reg = reg - RW_REG_START;
+        reg -= RW_REG_START;
         assert!(reg + val.len() <= NUM_CACHE_REGS);
         self.regs[reg..reg + val.len()].copy_from_slice(val);
     }
