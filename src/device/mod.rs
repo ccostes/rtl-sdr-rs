@@ -96,14 +96,14 @@ impl Device {
         ) {
             Ok(n) => {
                 // info!("demod_read_reg got {} bytes: [{:#02x}, {:#02x}] value: {:x}", n, data[0], data[1], BigEndian::read_u16(&data));
-                Ok(n)
+                n
             }
             Err(e) => {
                 error!(
                     "demod_read_reg failed: {} page: {:#02x} addr: {:#02x}",
                     e, page, addr
                 );
-                Err(e)
+                return Err(e);
             }
         };
         let reg: u16 = data[0] as u16;
@@ -129,7 +129,7 @@ impl Device {
                         "demod_write_reg failed: {} page: {:#02x} addr: {:#02x} val: {:#02x}",
                         e, page, addr, val
                     );
-                    0
+                    return Err(e);
                 }
             };
 
