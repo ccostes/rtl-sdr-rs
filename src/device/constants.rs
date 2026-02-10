@@ -4,14 +4,14 @@
 
 #![allow(dead_code)]
 
-use std::time::Duration;
+use std::{collections::HashSet, sync::LazyLock, time::Duration};
 
 pub struct UsbDeviceSignature {
     pub vid: u16,
     pub pid: u16,
     pub description: &'static str,
 }
-pub const KNOWN_DEVICES: &'static [UsbDeviceSignature; 42] = &[
+const KNOWN_DEVICES: &[UsbDeviceSignature; 42] = &[
     UsbDeviceSignature {
         vid: 0x0bda,
         pid: 0x2832,
@@ -223,6 +223,15 @@ pub const KNOWN_DEVICES: &'static [UsbDeviceSignature; 42] = &[
         description: "PROlectrix DV107669",
     },
 ];
+
+pub static DEVICE_LOOKUP: LazyLock<HashSet<(u16, u16)>> =
+    LazyLock::new(|| {
+        KNOWN_DEVICES
+            .iter()
+            .map(|device| (device.vid, device.pid))
+            .collect()
+    });
+
 
 pub const EEPROM_ADDR: u16 = 0xa0;
 pub const EEPROM_SIZE: usize = 256;

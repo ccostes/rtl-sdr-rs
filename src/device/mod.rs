@@ -24,7 +24,7 @@ use std::time::Duration;
 mod device_test;
 
 pub fn is_known_device(vid: u16, pid: u16) -> bool {
-    KNOWN_DEVICES.iter().any(|d| d.vid == vid && d.pid == pid)
+    DEVICE_LOOKUP.contains(&(vid, pid))
 }
 
 #[derive(Debug)]
