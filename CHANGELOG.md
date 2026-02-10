@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/ccostes/rtl-sdr-rs/compare/v0.3.0...v0.3.1) - 2026-02-10
+
+### Other
+
+- Fix panic in _xtal_check
+- Run cargo clippy --fix
+- Propagate up USB errors instead of swallowing
+- Reduce cost of opening / enumerating devices
+
 ## [0.3.0](https://github.com/ccostes/rtl-sdr-rs/compare/v0.2.1...v0.3.0) - 2026-01-28
 
 ### Added
