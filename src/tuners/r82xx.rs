@@ -1058,9 +1058,7 @@ impl R82xx {
         let mut data: [u8; 3] = [0; 3];
 
         // Initialize register cache
-        for i in RW_REG_START..NUM_REGS {
-            self.regs[i] = REG_INIT[i];
-        }
+        self.regs.copy_from_slice(&REG_INIT);
 
         // cap 30pF & Drive Low
         self.write_reg_mask(handle, 0x10, 0x0b, 0x0b)?;
