@@ -145,7 +145,7 @@ impl RtlSdr {
     }
     pub fn close(&mut self) -> Result<()> {
         // TODO: wait until async is inactive
-        Ok(self.sdr.deinit_baseband()?)
+        self.sdr.deinit_baseband()
     }
     pub fn reset_buffer(&self) -> Result<()> {
         self.sdr.reset_buffer()

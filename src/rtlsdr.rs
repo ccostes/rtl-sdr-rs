@@ -20,7 +20,7 @@ const MIN_RTL_XTAL_FREQ: u32 = DEF_RTL_XTAL_FREQ - 1000;
 const MAX_RTL_XTAL_FREQ: u32 = DEF_RTL_XTAL_FREQ + 1000;
 
 pub(crate) const FIR_LEN: usize = 16;
-const DEFAULT_FIR: &'static [i32; FIR_LEN] = &[
+const DEFAULT_FIR: &[i32; FIR_LEN] = &[
     -54, -36, -41, -40, -32, -14, 14, 53, // i8
     101, 156, 215, 273, 327, 372, 404, 421, // i12
 ];
@@ -46,7 +46,7 @@ pub struct RtlSdr {
 impl RtlSdr {
     pub fn new(handle: Device) -> Self {
         RtlSdr {
-            handle: handle,
+            handle,
             tuner: Box::new(NoTuner {}),
             freq: 0,
             rate: 0,
@@ -118,17 +118,9 @@ impl RtlSdr {
         // Hack to force the Bias T to always be on if we set the IR-Endpoint bit in the EEPROM to 0. Default on EEPROM is 1.
         let mut buf: [u8; EEPROM_SIZE] = [0; EEPROM_SIZE];
         self.handle.read_eeprom(&mut buf, 0, EEPROM_SIZE)?;
-        if buf[7] & 0x02 != 0 {
-            self.force_bt = false;
-        } else {
-            self.force_bt = true;
-        }
+        self.force_bt = buf[7] & 0x02 == 0;
         // Hack to force direct sampling mode to always be on if we set the remote-enabled bit in the EEPROM to 1. Default on EEPROM is 0.
-        if buf[7] & 0x01 != 0 {
-            self.force_ds = true;
-        } else {
-            self.force_ds = false;
-        }
+        self.force_ds = buf[7] & 0x01 != 0;
         // TODO: if(force_ds){tuner_type = TUNER_UNKNOWN}
         info!("Init tuner");
         self.tuner.init(&self.handle)?;
@@ -188,7 +180,7 @@ impl RtlSdr {
         let rtl_xtal: u32 = DEF_RTL_XTAL_FREQ;
         // Apply PPM correction
         let base = 1u32 << 22;
-        let if_freq: i32 = (freq as f64 * base as f64 / rtl_xtal as f64 * -1f64) as i32;
+        let if_freq: i32 = -(freq as f64 * base as f64 / rtl_xtal as f64) as i32;
 
         let tmp = ((if_freq >> 16) as u16) & 0x3f;
         self.handle.demod_write_reg(1, 0x19, tmp, 1)?;
@@ -230,7 +222,7 @@ impl RtlSdr {
 
         // Compute exact sample rate
         let rsamp_ratio =
-            ((self.xtal as u128 * 2_u128.pow(22) / rate as u128) & 0x0ffffffc) as u128;
+            (self.xtal as u128 * 2_u128.pow(22) / rate as u128) & 0x0ffffffc;
         info!(
             "set_sample_rate: rate: {}, xtal: {}, rsamp_ratio: {}",
             rate, self.xtal, rsamp_ratio
@@ -367,7 +359,7 @@ impl RtlSdr {
     }
 
     pub fn set_bias_tee(&self, on: bool) -> Result<()> {
-        Ok(self.set_gpio(0, on)?)
+        self.set_gpio(0, on)
     }
 
     #[allow(dead_code)]
@@ -381,7 +373,7 @@ impl RtlSdr {
 
     #[allow(dead_code)]
     pub fn set_xtal_freq(&mut self, rtl_freq: u32, tuner_freq: u32) -> Result<()> {
-        if rtl_freq > 0 && (rtl_freq < MIN_RTL_XTAL_FREQ || rtl_freq > MAX_RTL_XTAL_FREQ) {
+        if rtl_freq > 0 && !(MIN_RTL_XTAL_FREQ..=MAX_RTL_XTAL_FREQ).contains(&rtl_freq) {
             return Err(RtlsdrErr(format!(
                 "set_xtal_freq error: rtl_freq {} out of bounds",
                 rtl_freq
@@ -483,7 +475,7 @@ impl RtlSdr {
     }
 
     fn set_sample_freq_correction(&self, ppm: i32) -> Result<()> {
-        let offs = (ppm * (-1) * 2_i32.pow(24) / 1_000_000) as i16;
+        let offs = (-ppm * 2_i32.pow(24) / 1_000_000) as i16;
         self.handle
             .demod_write_reg(1, 0x3f, (offs & 0xff) as u16, 1)?;
         self.handle
@@ -497,7 +489,7 @@ impl RtlSdr {
             on = true;
         }
         self.set_gpio_output(gpio_pin)?;
-        Ok(self.set_gpio_bit(gpio_pin, on)?)
+        self.set_gpio_bit(gpio_pin, on)
     }
 
     fn set_gpio_bit(&self, mut gpio: u8, val: bool) -> Result<()> {
@@ -527,8 +519,7 @@ impl RtlSdr {
             false => 0x10,
         };
         self.handle
-            .demod_write_reg(1, 0x01, val, 1)
-            .and_then(|_| return Ok(()))
+            .demod_write_reg(1, 0x01, val, 1).map(|_| ())
     }
 
     pub fn set_fir(&self, fir: &[i32; FIR_LEN]) -> Result<()> {
@@ -537,7 +528,7 @@ impl RtlSdr {
         // First 8 values are i8
         for i in 0..8 {
             let val = fir[i];
-            if val < -128 || val > 127 {
+            if !(-128..=127).contains(&val) {
                 panic!("i8 FIR coefficient out of bounds! {}", val);
             }
             tmp[i] = val as u8;
@@ -549,9 +540,9 @@ impl RtlSdr {
         for i in (0..8).step_by(2) {
             let val0 = fir[8 + i];
             let val1 = fir[8 + i + 1];
-            if val0 < -2048 || val0 > 2047 {
+            if !(-2048..=2047).contains(&val0) {
                 panic!("i12 FIR coefficient out of bounds: {}", val0)
-            } else if val1 < -2048 || val1 > 2047 {
+            } else if !(-2048..=2047).contains(&val1) {
                 panic!("i12 FIR coefficient out of bounds: {}", val1)
             }
             tmp[8 + i * 3 / 2] = (val0 >> 4) as u8;

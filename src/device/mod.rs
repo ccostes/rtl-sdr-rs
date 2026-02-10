@@ -24,7 +24,7 @@ use std::time::Duration;
 mod device_test;
 
 pub fn is_known_device(vid: u16, pid: u16) -> bool {
-    KNOWN_DEVICES.iter().any(|d| d.vid == vid && d.pid == pid)
+    DEVICE_LOOKUP.contains(&(vid, pid))
 }
 
 #[derive(Debug)]
@@ -40,7 +40,7 @@ impl Device {
     }
 
     pub fn claim_interface(&mut self, iface: u8) -> Result<()> {
-        Ok(self.handle.claim_interface(iface)?)
+        self.handle.claim_interface(iface)
     }
 
     pub fn test_write(&mut self) -> Result<()> {
@@ -77,9 +77,9 @@ impl Device {
         let data_slice = if len == 1 { &data[1..2] } else { &data };
         let index = (block << 8) | 0x10;
         // info!("write_reg addr: {:x} index: {:x} data: {:x?} data slice: {}", addr, index, data, data_slice.len());
-        Ok(self
+        self
             .handle
-            .write_control(CTRL_OUT, 0, addr, index, data_slice, CTRL_TIMEOUT)?)
+            .write_control(CTRL_OUT, 0, addr, index, data_slice, CTRL_TIMEOUT)
     }
 
     /// Only supports u8 reads
@@ -96,14 +96,14 @@ impl Device {
         ) {
             Ok(n) => {
                 // info!("demod_read_reg got {} bytes: [{:#02x}, {:#02x}] value: {:x}", n, data[0], data[1], BigEndian::read_u16(&data));
-                Ok(n)
+                n
             }
             Err(e) => {
                 error!(
                     "demod_read_reg failed: {} page: {:#02x} addr: {:#02x}",
                     e, page, addr
                 );
-                Err(e)
+                return Err(e);
             }
         };
         let reg: u16 = data[0] as u16;
@@ -129,7 +129,7 @@ impl Device {
                         "demod_write_reg failed: {} page: {:#02x} addr: {:#02x} val: {:#02x}",
                         e, page, addr, val
                     );
-                    0
+                    return Err(e);
                 }
             };
 
@@ -139,7 +139,7 @@ impl Device {
     }
 
     pub fn bulk_transfer(&self, buf: &mut [u8]) -> Result<usize> {
-        Ok(self.handle.read_bulk(0x81, buf, Duration::ZERO)?)
+        self.handle.read_bulk(0x81, buf, Duration::ZERO)
     }
 
     pub fn read_eeprom(&self, data: &mut [u8], offset: u8, len: usize) -> Result<usize> {
@@ -170,7 +170,7 @@ impl Device {
     }
 
     pub fn i2c_write(&self, i2c_addr: u16, buffer: &[u8]) -> Result<usize> {
-        Ok(self.write_array(BLOCK_IIC, i2c_addr, buffer, buffer.len())?)
+        self.write_array(BLOCK_IIC, i2c_addr, buffer, buffer.len())
     }
 
     pub fn i2c_read(&self, i2c_addr: u16, buffer: &mut [u8], len: u8) -> Result<usize> {
@@ -179,15 +179,15 @@ impl Device {
 
     pub fn read_array(&self, block: u16, addr: u16, arr: &mut [u8], _len: u8) -> Result<usize> {
         let index: u16 = block << 8;
-        Ok(self
+        self
             .handle
-            .read_control(CTRL_IN, 0, addr, index, arr, CTRL_TIMEOUT)?)
+            .read_control(CTRL_IN, 0, addr, index, arr, CTRL_TIMEOUT)
     }
 
     pub fn write_array(&self, block: u16, addr: u16, arr: &[u8], len: usize) -> Result<usize> {
         let index: u16 = (block << 8) | 0x10;
-        Ok(self
+        self
             .handle
-            .write_control(CTRL_OUT, 0, addr, index, &arr[..len], CTRL_TIMEOUT)?)
+            .write_control(CTRL_OUT, 0, addr, index, &arr[..len], CTRL_TIMEOUT)
     }
 }
