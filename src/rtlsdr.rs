@@ -410,6 +410,43 @@ impl RtlSdr {
         self.handle.bulk_transfer(buf)
     }
 
+    /// Continuous async streaming read. Blocks the calling thread,
+    /// invoking `callback` once per completed bulk transfer with the
+    /// bytes received. Returns when `cancel` is signalled (or on a
+    /// fatal libusb error).
+    ///
+    /// Unlike `read_sync`, this keeps `buf_num` URBs in flight at
+    /// all times so the device's internal FIFO doesn't gap between
+    /// host calls. See `async_read::read_async_blocking` for the full
+    /// rationale.
+    pub fn read_async<F>(
+        &self,
+        buf_num: usize,
+        buf_len: usize,
+        cancel: &crate::async_read::CancelHandle,
+        callback: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&[u8]) + Send,
+    {
+        // SAFETY: Both pointers belong to the same rusb context (the
+        // one this RtlSdr was opened against). The context lives as
+        // long as `self.handle` does, which lives as long as `self`,
+        // which is borrowed for the duration of this call. No other
+        // thread is permitted to call libusb_handle_events* on the
+        // same context — we own the streaming loop.
+        unsafe {
+            crate::async_read::read_async_blocking(
+                self.handle.handle_raw(),
+                self.handle.context_raw(),
+                buf_num,
+                buf_len,
+                cancel,
+                callback,
+            )
+        }
+    }
+
     fn init_baseband(&self) -> Result<()> {
         // Init baseband
         // info!("Initialize USB");
