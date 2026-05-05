@@ -290,9 +290,12 @@ where
             requested_cancel = true;
         }
 
+        // `tv_usec` is `suseconds_t` on Unix and `c_long` on Windows;
+        // both are integral and `POLL_TIMEOUT_USEC` fits, so let the
+        // compiler infer the platform-correct type.
         let mut tv = libc::timeval {
             tv_sec: 0,
-            tv_usec: POLL_TIMEOUT_USEC as libc::suseconds_t,
+            tv_usec: POLL_TIMEOUT_USEC as _,
         };
         let mut completed: c_int = 0;
         let r = libusb_handle_events_timeout_completed(
@@ -335,7 +338,7 @@ unsafe fn drain_in_flight(context: *mut libusb_context, in_flight: &AtomicUsize)
     while in_flight.load(Ordering::Acquire) > 0 {
         let mut tv = libc::timeval {
             tv_sec: 0,
-            tv_usec: POLL_TIMEOUT_USEC as libc::suseconds_t,
+            tv_usec: POLL_TIMEOUT_USEC as _,
         };
         let mut completed: c_int = 0;
         let _ = libusb_handle_events_timeout_completed(
