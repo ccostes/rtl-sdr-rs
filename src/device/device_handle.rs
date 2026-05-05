@@ -159,21 +159,6 @@ impl DeviceHandle {
         Ok(self.handle.read_bulk(endpoint, buf, timeout)?)
     }
 
-    /// Raw libusb device handle pointer for the async streaming
-    /// implementation. Crate-private because exposing it publicly
-    /// would let callers bypass our cached state (e.g. centre
-    /// frequency) and is unsafe to use without care.
-    pub(crate) fn raw(&self) -> *mut libusb1_sys::libusb_device_handle {
-        self.handle.as_raw()
-    }
-
-    /// Raw libusb context pointer the async event-loop needs to call
-    /// `libusb_handle_events_completed` against.
-    pub(crate) fn context_raw(&self) -> *mut libusb1_sys::libusb_context {
-        use rusb::UsbContext;
-        self.handle.context().as_raw()
-    }
-
     pub fn get_usb_strings(&self) -> Result<(Option<String>, Option<String>, Option<String>)> {
         let device = self.handle.device();
         let descriptor = device
