@@ -142,6 +142,14 @@ impl Device {
         self.handle.read_bulk(0x81, buf, Duration::ZERO)
     }
 
+    pub(crate) fn handle_raw(&self) -> *mut libusb1_sys::libusb_device_handle {
+        self.handle.raw()
+    }
+
+    pub(crate) fn context_raw(&self) -> *mut libusb1_sys::libusb_context {
+        self.handle.context_raw()
+    }
+
     pub fn read_eeprom(&self, data: &mut [u8], offset: u8, len: usize) -> Result<usize> {
         assert!((len + offset as usize) <= EEPROM_SIZE);
         self.write_array(BLOCK_IIC, EEPROM_ADDR, &[offset], 1)?;
