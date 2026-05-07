@@ -49,12 +49,12 @@ const REG_INIT: [u8; NUM_CACHE_REGS] = [
 * input power, for raw results see:
 * http://steve-m.de/projects/rtl-sdr/gain_measurement/r820t/
 */
-const _VGA_BASE_GAIN: i32 = -47;
+const VGA_BASE_GAIN: i32 = -47;
 const GAINS: [i32; 29] = [
     0, 9, 14, 27, 37, 77, 87, 125, 144, 157, 166, 197, 207, 229, 254, 280, 297, 328, 338, 364, 372,
     386, 402, 421, 434, 439, 445, 480, 496,
 ];
-const _R82XX_VGA_GAIN_STEPS: [i32; 16] = [
+const R82XX_VGA_GAIN_STEPS: [i32; 16] = [
     0, 26, 26, 30, 42, 35, 24, 13, 14, 32, 36, 34, 35, 37, 35, 36,
 ];
 
@@ -407,10 +407,33 @@ impl Tuner for R82xx {
     }
 
     fn read_gain(&self, handle: &Device) -> Result<i32> {
+        // Total tuner gain in tenths of a dB, summed across the three
+        // R820T gain stages:
+        //   * LNA index from register 0x03 bits 0..3
+        //   * Mixer index from register 0x03 bits 4..7
+        //   * VGA index from register 0x0c bits 0..3
+        // Each index is summed through the per-step gain table, then
+        // VGA adds a constant base offset. The status byte at 0x03
+        // reflects the *currently active* indices, so this readback
+        // is valid in both Manual and Auto (hardware-AGC) modes.
+        //
+        // Note: the previous implementation returned a packed
+        // `(lna_idx << 1) + mix_idx` register-index value, which is
+        // not in dB and inherits no consistent unit — it was kept
+        // here only because librtlsdr's r82xx_read_gain() shares the
+        // same expression. Callers expecting a dB-equivalent reading
+        // (e.g. UI live-gain displays) need the full LUT walk below.
         let mut data: [u8; 4] = [0; 4];
         self.read_reg(handle, 0x00, &mut data, 4)?;
-        let gain = ((data[3] & 0x0f) << 1) + ((data[3] & 0xf0) >> 4);
-        Ok(gain as i32)
+        let lna_idx = (data[3] & 0x0f) as usize;
+        let mix_idx = ((data[3] & 0xf0) >> 4) as usize;
+        let vga_idx = (self.read_cache_reg(0x0c) & 0x0f) as usize;
+
+        let lna_gain: i32 = R82XX_LNA_GAIN_STEPS[..=lna_idx].iter().sum();
+        let mix_gain: i32 = R82XX_MIXER_GAIN_STEPS[..=mix_idx].iter().sum();
+        let vga_gain: i32 =
+            VGA_BASE_GAIN + R82XX_VGA_GAIN_STEPS[..=vga_idx].iter().sum::<i32>();
+        Ok(lna_gain + mix_gain + vga_gain)
     }
 
     fn set_gain(&mut self, handle: &Device, mode: TunerGain) -> Result<()> {
