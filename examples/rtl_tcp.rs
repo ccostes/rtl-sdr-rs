@@ -8,7 +8,7 @@
 //! commands to adjust frequency, sample rate, gain, and other device parameters.
 
 use rtl_sdr_rs::{DeviceId, DirectSampleMode, RtlSdr, TunerGain, DEFAULT_BUF_LENGTH, TunerId};
-use std::{cmp, net::IpAddr};
+use std::cmp;
 use std::env;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -86,8 +86,11 @@ fn run() -> Result<(), String> {
     let mut sdr = setup_device(&config)?;
 
     let listen_addr = SocketAddr::new(
-        config.address.parse().map_err(|_| format!("Invalid listen address: {}", config.address))?,
-        config.port
+        config
+            .address
+            .parse()
+            .map_err(|e| format!("Invalid listen address: {}", e))?,
+        config.port,
     );
 
     let listener =
