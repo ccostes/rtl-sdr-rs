@@ -20,7 +20,17 @@ pub struct TunerInfo {
     // pub gains: Vec<i8>,
 }
 
-pub trait Tuner: std::fmt::Debug {
+/// Per-tuner backend interface. Implementations are stored as a
+/// trait object inside [`crate::RtlSdr`], which is captured by
+/// reference from the `read_async` callback. Since `read_async`
+/// requires its closure to be `Send`, `&RtlSdr` must in turn be
+/// `Send`, which requires `RtlSdr: Sync`, which requires
+/// `Box<dyn Tuner>: Sync`. Bound the trait with `Send + Sync` so
+/// any callback that wants to query the tuner mid-stream (e.g.
+/// `read_gain` for a live AGC display) compiles. Existing
+/// implementors (`NoTuner`, `R82xx`) hold only primitive / `Copy`
+/// state so they already satisfy these auto-traits.
+pub trait Tuner: std::fmt::Debug + Send + Sync {
     fn init(&mut self, handle: &Device) -> Result<()>;
     fn get_info(&self) -> Result<TunerInfo>;
     fn get_gains(&self) -> Result<Vec<i32>>;
