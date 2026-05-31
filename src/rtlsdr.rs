@@ -35,7 +35,6 @@ pub struct RtlSdr {
     direct_sampling: DirectSampleMode,
     xtal: u32,
     tuner_xtal: u32,
-    ppm_correction: u32,
     offset_freq: u32,
     corr: i32, // PPM
     force_bt: bool,
@@ -51,7 +50,6 @@ impl RtlSdr {
             freq: 0,
             rate: 0,
             bw: 0,
-            ppm_correction: 0,
             xtal: DEF_RTL_XTAL_FREQ,
             tuner_xtal: DEF_RTL_XTAL_FREQ,
             direct_sampling: DirectSampleMode::Off,
@@ -364,11 +362,11 @@ impl RtlSdr {
 
     #[allow(dead_code)]
     pub fn get_xtal_freq(&self) -> u32 {
-        (self.xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
+        (self.xtal as f32 * (1.0 + self.corr as f32 / 1e6)) as u32
     }
 
     pub fn get_tuner_xtal_freq(&self) -> u32 {
-        (self.tuner_xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
+        (self.tuner_xtal as f32 * (1.0 + self.corr as f32 / 1e6)) as u32
     }
 
     #[allow(dead_code)]
