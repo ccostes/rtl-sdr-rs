@@ -7,7 +7,7 @@
 //! The server streams raw I/Q samples to connected clients and accepts control
 //! commands to adjust frequency, sample rate, gain, and other device parameters.
 
-use rtl_sdr_rs::{DeviceId, DirectSampleMode, RtlSdr, TunerGain, DEFAULT_BUF_LENGTH, TunerId};
+use rtl_sdr_rs::{DeviceId, DirectSampleMode, RtlSdr, TunerGain, TunerId, DEFAULT_BUF_LENGTH};
 use std::cmp;
 use std::env;
 use std::io::{self, Read, Write};

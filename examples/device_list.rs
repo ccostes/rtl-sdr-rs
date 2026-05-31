@@ -34,7 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Manufacturer: {}", device.manufacturer);
         println!("  Product:      {}", device.product);
         println!("  Serial:       {}", device.serial);
-        println!("  VID:PID:      {:04x}:{:04x}", device.vendor_id, device.product_id);
+        println!(
+            "  VID:PID:      {:04x}:{:04x}",
+            device.vendor_id, device.product_id
+        );
         println!();
     }
 
@@ -112,4 +115,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

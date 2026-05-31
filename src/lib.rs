@@ -243,9 +243,7 @@ impl RtlSdr {
         devices
             .into_iter()
             .find(|d| d.index == index)
-            .ok_or_else(|| {
-                RtlsdrError::RtlsdrErr(format!("No device found at index {}", index))
-            })
+            .ok_or_else(|| RtlsdrError::RtlsdrErr(format!("No device found at index {}", index)))
     }
 
     /// Get the serial number for a specific device by index

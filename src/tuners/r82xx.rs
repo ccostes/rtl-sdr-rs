@@ -431,8 +431,7 @@ impl Tuner for R82xx {
 
         let lna_gain: i32 = R82XX_LNA_GAIN_STEPS[..=lna_idx].iter().sum();
         let mix_gain: i32 = R82XX_MIXER_GAIN_STEPS[..=mix_idx].iter().sum();
-        let vga_gain: i32 =
-            VGA_BASE_GAIN + R82XX_VGA_GAIN_STEPS[..=vga_idx].iter().sum::<i32>();
+        let vga_gain: i32 = VGA_BASE_GAIN + R82XX_VGA_GAIN_STEPS[..=vga_idx].iter().sum::<i32>();
         Ok(lna_gain + mix_gain + vga_gain)
     }
 
@@ -1105,7 +1104,9 @@ impl R82xx {
                 return Ok(*cap_val);
             }
         }
-        Err(RtlsdrErr("Unable to find good xtal capacitor value!".to_string()))
+        Err(RtlsdrErr(
+            "Unable to find good xtal capacitor value!".to_string(),
+        ))
     }
 
     /// Write register with bit-masked data

@@ -224,14 +224,12 @@ const KNOWN_DEVICES: &[UsbDeviceSignature; 42] = &[
     },
 ];
 
-pub static DEVICE_LOOKUP: LazyLock<HashSet<(u16, u16)>> =
-    LazyLock::new(|| {
-        KNOWN_DEVICES
-            .iter()
-            .map(|device| (device.vid, device.pid))
-            .collect()
-    });
-
+pub static DEVICE_LOOKUP: LazyLock<HashSet<(u16, u16)>> = LazyLock::new(|| {
+    KNOWN_DEVICES
+        .iter()
+        .map(|device| (device.vid, device.pid))
+        .collect()
+});
 
 pub const EEPROM_ADDR: u16 = 0xa0;
 pub const EEPROM_SIZE: usize = 256;

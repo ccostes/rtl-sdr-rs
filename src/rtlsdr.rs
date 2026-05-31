@@ -219,8 +219,7 @@ impl RtlSdr {
         }
 
         // Compute exact sample rate
-        let rsamp_ratio =
-            (self.xtal as u128 * 2_u128.pow(22) / rate as u128) & 0x0ffffffc;
+        let rsamp_ratio = (self.xtal as u128 * 2_u128.pow(22) / rate as u128) & 0x0ffffffc;
         info!(
             "set_sample_rate: rate: {}, xtal: {}, rsamp_ratio: {}",
             rate, self.xtal, rsamp_ratio
@@ -516,8 +515,7 @@ impl RtlSdr {
             true => 0x18,
             false => 0x10,
         };
-        self.handle
-            .demod_write_reg(1, 0x01, val, 1).map(|_| ())
+        self.handle.demod_write_reg(1, 0x01, val, 1).map(|_| ())
     }
 
     pub fn set_fir(&self, fir: &[i32; FIR_LEN]) -> Result<()> {
