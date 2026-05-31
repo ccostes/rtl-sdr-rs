@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/ccostes/rtl-sdr-rs/compare/v0.3.1...v0.3.2) - 2026-05-31
+
+### Other
+
+- Merge pull request #38 from jgraef/switch/fix-rtl_tcp-address-parsing
+- preserve invalid address in error
+- clean up address parsing fix
+- fix address parsing
+
 ## [0.3.1](https://github.com/ccostes/rtl-sdr-rs/compare/v0.3.0...v0.3.1) - 2026-02-10
 
 ### Other
