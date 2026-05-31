@@ -89,7 +89,7 @@ fn run() -> Result<(), String> {
         config
             .address
             .parse()
-            .map_err(|e| format!("Invalid listen address: {}", e))?,
+            .map_err(|_| format!("Invalid listen address: {}", config.address))?,
         config.port,
     );
 
