@@ -1,3 +1,8 @@
+[![crates.io](https://img.shields.io/crates/v/rtl_sdr_rs.svg)](https://crates.io/crates/rtl_sdr_rs)
+[![Documentation](https://docs.rs/rtl-sdr-rs/badge.svg)](https://docs.rs/rtl-sdr-rs/latest)
+[![MIT](https://img.shields.io/crates/l/rtl_sdr_rs.svg)](./LICENSE)
+[![Build](https://github.com/ccostes/rtl-sdr-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/ccostes/rtl-sdr-rs/actions/workflows/rust.yml)
+
 # RTL-SDR
 An RTL-SDR library written in Rust!
 
