@@ -85,9 +85,13 @@ fn run() -> Result<(), String> {
 
     let mut sdr = setup_device(&config)?;
 
-    let listen_addr: SocketAddr = format!("{}:{}", config.address, config.port)
-        .parse()
-        .map_err(|e| format!("Invalid listen address: {}", e))?;
+    let listen_addr = SocketAddr::new(
+        config
+            .address
+            .parse()
+            .map_err(|_| format!("Invalid listen address: {}", config.address))?,
+        config.port,
+    );
 
     let listener =
         TcpListener::bind(listen_addr).map_err(|e| format!("Failed to bind socket: {}", e))?;
