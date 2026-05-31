@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/ccostes/rtl-sdr-rs/compare/v0.3.1...v0.3.2) - 2026-05-31
+
+### Other
+
+- Fix `rtl_tcp` IPv6 listen address parsing
+- Fix R82xx `read_gain` to return cumulative gain in tenths of dB
+- Require tuner backends to be `Send + Sync`
+- Add README badges
+
 ## [0.3.1](https://github.com/ccostes/rtl-sdr-rs/compare/v0.3.0...v0.3.1) - 2026-02-10
 
 ### Other
