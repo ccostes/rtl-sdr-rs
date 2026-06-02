@@ -35,6 +35,7 @@ pub struct RtlSdr {
     direct_sampling: DirectSampleMode,
     xtal: u32,
     tuner_xtal: u32,
+    ppm_correction: u32,
     offset_freq: u32,
     corr: i32, // PPM
     force_bt: bool,
@@ -50,6 +51,7 @@ impl RtlSdr {
             freq: 0,
             rate: 0,
             bw: 0,
+            ppm_correction: 0,
             xtal: DEF_RTL_XTAL_FREQ,
             tuner_xtal: DEF_RTL_XTAL_FREQ,
             direct_sampling: DirectSampleMode::Off,
@@ -361,11 +363,11 @@ impl RtlSdr {
 
     #[allow(dead_code)]
     pub fn get_xtal_freq(&self) -> u32 {
-        (self.xtal as f32 * (1.0 + self.corr as f32 / 1e6)) as u32
+        (self.xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
     }
 
     pub fn get_tuner_xtal_freq(&self) -> u32 {
-        (self.tuner_xtal as f32 * (1.0 + self.corr as f32 / 1e6)) as u32
+        (self.tuner_xtal as f32 * (1.0 + self.ppm_correction as f32 / 1e6)) as u32
     }
 
     #[allow(dead_code)]
@@ -405,6 +407,43 @@ impl RtlSdr {
 
     pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize> {
         self.handle.bulk_transfer(buf)
+    }
+
+    /// Continuous async streaming read. Blocks the calling thread,
+    /// invoking `callback` once per completed bulk transfer with the
+    /// bytes received. Returns when `cancel` is signalled (or on a
+    /// fatal libusb error).
+    ///
+    /// Unlike `read_sync`, this keeps `buf_num` URBs in flight at
+    /// all times so the device's internal FIFO doesn't gap between
+    /// host calls. See `async_read::read_async_blocking` for the full
+    /// rationale.
+    pub fn read_async<F>(
+        &self,
+        buf_num: usize,
+        buf_len: usize,
+        cancel: &crate::async_read::CancelHandle,
+        callback: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&[u8]) + Send,
+    {
+        // SAFETY: Both pointers belong to the same rusb context (the
+        // one this RtlSdr was opened against). The context lives as
+        // long as `self.handle` does, which lives as long as `self`,
+        // which is borrowed for the duration of this call. No other
+        // thread is permitted to call libusb_handle_events* on the
+        // same context — we own the streaming loop.
+        unsafe {
+            crate::async_read::read_async_blocking(
+                self.handle.handle_raw(),
+                self.handle.context_raw(),
+                buf_num,
+                buf_len,
+                cancel,
+                callback,
+            )
+        }
     }
 
     fn init_baseband(&self) -> Result<()> {

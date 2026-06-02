@@ -18,6 +18,15 @@ disable-simd = []
 
 [dependencies]
 rusb = "0.9"
+# Pulled in transitively via `rusb`, but called directly for the
+# async streaming API (rusb 0.9 doesn't surface libusb's
+# bulk-transfer async machinery yet).
+libusb1-sys = "0.7"
+# `libc::timeval` for the libusb_handle_events_timeout_completed
+# event-loop poll. Already a transitive dep of `libusb1-sys`; we
+# pin it explicitly so the build doesn't break if rusb/libusb1-sys
+# stops re-exporting it.
+libc = "0.2"
 byteorder = "1"
 log = "0.4"
 mockall = "0.11"

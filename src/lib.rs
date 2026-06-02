@@ -5,10 +5,13 @@
 //! # rtlsdr Library
 //! Library for interfacing with an RTL-SDR device.
 
+pub mod async_read;
 mod device;
 pub mod error;
 mod rtlsdr;
 mod tuners;
+
+pub use async_read::CancelHandle;
 
 use device::Device;
 use error::{Result, RtlsdrError};
@@ -152,6 +155,35 @@ impl RtlSdr {
     }
     pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize> {
         self.sdr.read_sync(buf)
+    }
+
+    /// Continuous async-streaming read.
+    ///
+    /// Keeps `buf_num` libusb bulk URBs submitted at all times, so
+    /// the RTL-SDR's on-chip FIFO never gaps between host calls.
+    /// Each completed transfer fires `callback` with the received
+    /// bytes; the call blocks the current thread until `cancel` is
+    /// signalled (clone the handle to another thread to do that).
+    ///
+    /// Sensible defaults track librtlsdr's `rtlsdr_read_async`:
+    ///   `buf_num = 15`, `buf_len = 16 * 16384` (≈ 4 MB ring).
+    ///
+    /// Use this in preference to repeatedly calling [`read_sync`]
+    /// when continuous-rate IQ capture matters — a tight `read_sync`
+    /// loop on a busy host can drop ~1–2 % of samples in the gap
+    /// between transfers, which is enough to derail narrowband
+    /// downstream demodulators.
+    pub fn read_async<F>(
+        &self,
+        buf_num: usize,
+        buf_len: usize,
+        cancel: &CancelHandle,
+        callback: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&[u8]) + Send,
+    {
+        self.sdr.read_async(buf_num, buf_len, cancel, callback)
     }
     pub fn get_center_freq(&self) -> u32 {
         self.sdr.get_center_freq()
