@@ -47,6 +47,10 @@ mock! {
             cancel: &crate::async_read::CancelHandle,
             callback: &mut dyn FnMut(&[u8]),
         ) -> Result<()>;
+        pub fn bulk_in_endpoint(
+            &self,
+            endpoint: u8,
+        ) -> Result<nusb::Endpoint<nusb::transfer::Bulk, nusb::transfer::In>>;
         pub fn get_usb_strings(
             &self,
         ) -> Result<(Option<String>, Option<String>, Option<String>)>;

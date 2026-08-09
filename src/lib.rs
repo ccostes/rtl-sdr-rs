@@ -11,7 +11,9 @@ pub mod error;
 mod rtlsdr;
 mod tuners;
 
-pub use async_read::CancelHandle;
+pub use async_read::{
+    AsyncReadConfigChange, AsyncReadControlHandle, AsyncReadEvent, AsyncReadHandle, CancelHandle,
+};
 use device::Device;
 use error::{Result, RtlsdrError};
 use nusb::MaybeFuture;
@@ -80,7 +82,7 @@ pub enum DeviceId<'a> {
     Fd(i32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunerGain {
     Auto,
     Manual(i32),
@@ -160,6 +162,16 @@ impl RtlSdr {
         self.sdr.read_async(buf_num, buf_len, cancel, callback)
     }
 
+    /// Starts an owned IQ stream with a cloneable live-control handle.
+    ///
+    /// The device is moved to a worker thread, which keeps multiple nusb bulk
+    /// transfers queued while delivering [`AsyncReadEvent`] values through the
+    /// returned handle. Configuration changes are acknowledged after the old
+    /// transfers have been drained and the hardware has accepted the new
+    /// setting. A reconfiguration marker is emitted before any new samples.
+    pub fn into_async_reader(self, buf_num: usize, buf_len: usize) -> Result<AsyncReadHandle> {
+        async_read::start_async_reader(self, buf_num, buf_len)
+    }
     pub fn get_center_freq(&self) -> u32 {
         self.sdr.get_center_freq()
     }

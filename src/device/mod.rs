@@ -18,6 +18,8 @@ use crate::DeviceId;
 use byteorder::{ByteOrder, LittleEndian};
 /// Low-level io functions for USB control and bulk transfers.
 use log::{error, info};
+use nusb::transfer::{Bulk, In};
+use nusb::Endpoint;
 use std::time::Duration;
 
 #[cfg(test)]
@@ -153,6 +155,10 @@ impl Device {
     {
         self.handle
             .read_async(0x81, buf_num, buf_len, cancel, &mut callback)
+    }
+
+    pub(crate) fn bulk_in_endpoint(&self, endpoint: u8) -> Result<Endpoint<Bulk, In>> {
+        self.handle.bulk_in_endpoint(endpoint)
     }
 
     pub fn read_eeprom(&self, data: &mut [u8], offset: u8, len: usize) -> Result<usize> {

@@ -12,6 +12,8 @@ use crate::error::RtlsdrError::RtlsdrErr;
 use crate::tuners::r82xx::{R82xx, R820T_TUNER_ID, R828D_TUNER_ID, R828D_XTAL_FREQ, R82XX_IF_FREQ};
 use crate::tuners::{NoTuner, Tuner, KNOWN_TUNERS};
 use log::{error, info};
+use nusb::transfer::{Bulk, In};
+use nusb::Endpoint;
 
 const INTERFACE_ID: u8 = 0;
 const BULK_ENDPOINT: u8 = 0x81;
@@ -421,6 +423,10 @@ impl RtlSdr {
         debug_assert_eq!(BULK_ENDPOINT, 0x81);
         self.handle
             .async_bulk_transfer(buf_num, buf_len, cancel, callback)
+    }
+
+    pub(crate) fn async_endpoint(&self) -> Result<Endpoint<Bulk, In>> {
+        self.handle.bulk_in_endpoint(BULK_ENDPOINT)
     }
 
     fn init_baseband(&self) -> Result<()> {
