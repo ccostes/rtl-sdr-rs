@@ -268,8 +268,6 @@ pub const USB_EPA_MAXPKT: u16 = 0x2158;
 pub const USB_EPA_MAXPKT_2: u16 = 0x215a;
 pub const USB_EPA_FIFO_CFG: u16 = 0x2160;
 
-pub const CTRL_IN: u8 =
-    rusb::constants::LIBUSB_ENDPOINT_IN | rusb::constants::LIBUSB_REQUEST_TYPE_VENDOR;
-pub const CTRL_OUT: u8 =
-    rusb::constants::LIBUSB_ENDPOINT_OUT | rusb::constants::LIBUSB_REQUEST_TYPE_VENDOR;
+pub const CTRL_IN: u8 = 0x80 | 0x40;
+pub const CTRL_OUT: u8 = 0x40;
 pub const CTRL_TIMEOUT: Duration = Duration::from_millis(300);

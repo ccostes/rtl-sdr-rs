@@ -16,7 +16,7 @@ use mock_device_handle::MockDeviceHandle as DeviceHandle;
 use crate::error::Result;
 use crate::DeviceId;
 use byteorder::{ByteOrder, LittleEndian};
-/// Low-level io functions for interfacing with rusb(libusb)
+/// Low-level io functions for USB control and bulk transfers.
 use log::{error, info};
 use std::time::Duration;
 
@@ -139,6 +139,20 @@ impl Device {
 
     pub fn bulk_transfer(&self, buf: &mut [u8]) -> Result<usize> {
         self.handle.read_bulk(0x81, buf, Duration::ZERO)
+    }
+
+    pub fn async_bulk_transfer<F>(
+        &self,
+        buf_num: usize,
+        buf_len: usize,
+        cancel: &crate::async_read::CancelHandle,
+        mut callback: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&[u8]),
+    {
+        self.handle
+            .read_async(0x81, buf_num, buf_len, cancel, &mut callback)
     }
 
     pub fn read_eeprom(&self, data: &mut [u8], offset: u8, len: usize) -> Result<usize> {

@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Mock version of rusb::DeviceHandle
+//! Mock version of DeviceHandle
 use crate::error::Result;
 use crate::DeviceId;
 use mockall::mock;
@@ -39,6 +39,14 @@ mock! {
             buf: &mut [u8],
             timeout: Duration,
         ) -> Result<usize>;
+        pub fn read_async(
+            &self,
+            endpoint: u8,
+            buf_num: usize,
+            buf_len: usize,
+            cancel: &crate::async_read::CancelHandle,
+            callback: &mut dyn FnMut(&[u8]),
+        ) -> Result<()>;
         pub fn get_usb_strings(
             &self,
         ) -> Result<(Option<String>, Option<String>, Option<String>)>;

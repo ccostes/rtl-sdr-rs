@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Continuous, cancellable IQ streaming through `RtlSdr::read_async`
+
+### Changed
+
+- **Breaking:** replace the public `rusb` error payload with backend-neutral
+  `UsbError` and `UsbErrorKind` types; the next release must be 0.4.0
+- Use `nusb` instead of `rusb` for USB enumeration, control transfers, and bulk
+  transfers
+
 ## [0.3.3](https://github.com/ccostes/rtl-sdr-rs/compare/v0.3.2...v0.3.3) - 2026-05-31
 
 ### Other
