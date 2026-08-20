@@ -277,6 +277,14 @@ impl RtlSdr {
     }
 }
 
+impl Drop for RtlSdr {
+    fn drop(&mut self) {
+        if let Err(e) = self.close() {
+            log::error!("Failed to power down on close: {e}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod public_api_tests {
     use super::{CancelHandle, Result, RtlSdr};
