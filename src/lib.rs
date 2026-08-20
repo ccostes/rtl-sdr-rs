@@ -110,13 +110,14 @@ pub enum SensorValue {
 
 pub struct RtlSdr {
     sdr: Sdr,
+    closed: bool,
 }
 impl RtlSdr {
     pub fn open(device_id: DeviceId) -> Result<RtlSdr> {
         let dev = Device::new(device_id)?;
         let mut sdr = Sdr::new(dev);
         sdr.init()?;
-        Ok(RtlSdr { sdr })
+        Ok(RtlSdr { sdr, closed: false })
     }
 
     pub fn open_with_serial(serial: &str) -> Result<RtlSdr> {
@@ -134,6 +135,11 @@ impl RtlSdr {
     }
     pub fn close(&mut self) -> Result<()> {
         // TODO: wait until async is inactive
+        if self.closed {
+            return Ok(());
+        }
+        self.closed = true;
+
         self.sdr.deinit_baseband()
     }
     pub fn reset_buffer(&self) -> Result<()> {
