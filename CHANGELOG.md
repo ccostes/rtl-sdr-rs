@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1](https://github.com/ccostes/rtl-sdr-rs/compare/v0.4.0...v0.4.1) - 2026-08-23
+
+### Other
+
+- Merge pull request #45 from ccostes/codex/async-control-plane
+
 ## [0.4.0](https://github.com/ccostes/rtl-sdr-rs/compare/v0.3.3...v0.4.0) - 2026-08-23
 
 ### Other
