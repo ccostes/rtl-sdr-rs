@@ -49,6 +49,54 @@ let sdr = RtlSdr::open_with_fd(fd)?;
 
 See the [demo_device_id example](examples/demo_device_id.rs) for a complete demonstration of all opening methods.
 
+### Asynchronous Streaming and Live Control
+
+`into_async_reader` moves the device into a streaming worker and returns an
+event reader. Its cloneable control handle can safely retune or change gain and
+sample rate from another thread without closing and reopening the device:
+
+```rust,no_run
+use rtl_sdr_rs::{AsyncReadEvent, DeviceId, Result, RtlSdr, TunerGain};
+
+fn process_iq(_data: &[u8]) {}
+fn reset_signal_processing_state() {}
+
+fn main() -> Result<()> {
+    let mut sdr = RtlSdr::open(DeviceId::Index(0))?;
+    sdr.set_sample_rate(1_920_000)?;
+    sdr.set_center_freq(100_000_000)?;
+    sdr.reset_buffer()?;
+
+    let mut reader = sdr.into_async_reader(0, 0)?;
+    let control = reader.control_handle();
+
+    std::thread::spawn(move || -> Result<()> {
+        control.set_center_freq(101_100_000)?;
+        control.set_tuner_gain(TunerGain::Manual(197))?;
+        control.set_sample_rate(2_048_000)?;
+        Ok(())
+    });
+
+    for event in &mut reader {
+        match event? {
+            AsyncReadEvent::Samples { data, .. } => process_iq(&data),
+            AsyncReadEvent::Reconfigured { generation, change } => {
+                eprintln!("stream generation {generation}: {change:?}");
+                reset_signal_processing_state();
+            }
+        }
+    }
+    Ok(())
+}
+
+```
+
+Every successful change creates a new stream generation. The reader drains old
+USB transfers and resets the device buffer before emitting `Reconfigured`, so
+consumers have an exact boundary at which to reset rate- or frequency-dependent
+signal-processing state. Sample chunks may be dropped when the consumer falls
+behind; `dropped_chunks()` reports the count.
+
 ### Device Enumeration
 
 List and identify devices before opening them:

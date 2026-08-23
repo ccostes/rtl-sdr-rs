@@ -12,7 +12,7 @@ use crate::error::RtlsdrError::RtlsdrErr;
 use crate::DeviceId;
 use log::info;
 use nusb::transfer::{Buffer, Bulk, ControlIn, ControlOut, ControlType, In, Recipient};
-use nusb::{Device, Interface, MaybeFuture};
+use nusb::{Device, Endpoint, Interface, MaybeFuture};
 
 type UsbStrings = (Option<String>, Option<String>, Option<String>);
 
@@ -242,6 +242,12 @@ impl DeviceHandle {
             .endpoint::<Bulk, In>(endpoint)
             .map_err(RtlsdrError::from_usb)?;
         crate::async_read::read_async_blocking(&mut endpoint, buf_num, buf_len, cancel, callback)
+    }
+
+    pub(crate) fn bulk_in_endpoint(&self, endpoint: u8) -> Result<Endpoint<Bulk, In>> {
+        self.claimed_interface()?
+            .endpoint::<Bulk, In>(endpoint)
+            .map_err(RtlsdrError::from_usb)
     }
 
     fn claimed_interface(&self) -> Result<&Interface> {

@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Continuous, cancellable IQ streaming through `RtlSdr::read_async`
+- Owned asynchronous IQ streams through `RtlSdr::into_async_reader`, including
+  acknowledged frequency, gain, and sample-rate control while streaming
 
 ### Changed
 
