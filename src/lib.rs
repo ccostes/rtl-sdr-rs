@@ -138,9 +138,10 @@ impl RtlSdr {
         if self.closed {
             return Ok(());
         }
-        self.closed = true;
 
-        self.sdr.deinit_baseband()
+        self.sdr.deinit_baseband()?;
+        self.closed = true;
+        Ok(())
     }
     pub fn reset_buffer(&self) -> Result<()> {
         self.sdr.reset_buffer()
