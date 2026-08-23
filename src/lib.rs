@@ -110,13 +110,14 @@ pub enum SensorValue {
 
 pub struct RtlSdr {
     sdr: Sdr,
+    closed: bool,
 }
 impl RtlSdr {
     pub fn open(device_id: DeviceId) -> Result<RtlSdr> {
         let dev = Device::new(device_id)?;
         let mut sdr = Sdr::new(dev);
         sdr.init()?;
-        Ok(RtlSdr { sdr })
+        Ok(RtlSdr { sdr, closed: false })
     }
 
     pub fn open_with_serial(serial: &str) -> Result<RtlSdr> {
@@ -134,7 +135,13 @@ impl RtlSdr {
     }
     pub fn close(&mut self) -> Result<()> {
         // TODO: wait until async is inactive
-        self.sdr.deinit_baseband()
+        if self.closed {
+            return Ok(());
+        }
+
+        self.sdr.deinit_baseband()?;
+        self.closed = true;
+        Ok(())
     }
     pub fn reset_buffer(&self) -> Result<()> {
         self.sdr.reset_buffer()
@@ -268,6 +275,14 @@ impl RtlSdr {
     /// Get the serial number for a specific device by index
     pub fn get_device_serial(index: usize) -> Result<String> {
         Self::get_device_info(index).map(|info| info.serial)
+    }
+}
+
+impl Drop for RtlSdr {
+    fn drop(&mut self) {
+        if let Err(e) = self.close() {
+            log::error!("Failed to power down on close: {e}");
+        }
     }
 }
 
