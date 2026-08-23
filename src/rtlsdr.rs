@@ -14,6 +14,7 @@ use crate::tuners::{NoTuner, Tuner, KNOWN_TUNERS};
 use log::{error, info};
 
 const INTERFACE_ID: u8 = 0;
+const BULK_ENDPOINT: u8 = 0x81;
 
 const DEF_RTL_XTAL_FREQ: u32 = 28_800_000;
 const MIN_RTL_XTAL_FREQ: u32 = DEF_RTL_XTAL_FREQ - 1000;
@@ -405,6 +406,21 @@ impl RtlSdr {
 
     pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize> {
         self.handle.bulk_transfer(buf)
+    }
+
+    pub fn read_async<F>(
+        &self,
+        buf_num: usize,
+        buf_len: usize,
+        cancel: &crate::async_read::CancelHandle,
+        callback: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&[u8]),
+    {
+        debug_assert_eq!(BULK_ENDPOINT, 0x81);
+        self.handle
+            .async_bulk_transfer(buf_num, buf_len, cancel, callback)
     }
 
     fn init_baseband(&self) -> Result<()> {

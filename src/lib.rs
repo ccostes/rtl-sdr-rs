@@ -5,15 +5,17 @@
 //! # rtlsdr Library
 //! Library for interfacing with an RTL-SDR device.
 
+mod async_read;
 mod device;
 pub mod error;
 mod rtlsdr;
 mod tuners;
 
+pub use async_read::CancelHandle;
 use device::Device;
 use error::{Result, RtlsdrError};
+use nusb::MaybeFuture;
 use rtlsdr::RtlSdr as Sdr;
-use rusb::{Context, DeviceHandle, DeviceList, UsbContext};
 use tuners::r82xx::{R820T_TUNER_ID, R828D_TUNER_ID};
 
 pub struct TunerId;
@@ -23,9 +25,10 @@ impl TunerId {
 }
 
 pub const DEFAULT_BUF_LENGTH: usize = 16 * 16384;
+pub const DEFAULT_ASYNC_BUF_NUMBER: usize = 15;
 
 pub struct DeviceDescriptors {
-    list: DeviceList<Context>,
+    list: Vec<nusb::DeviceInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,8 +43,10 @@ pub struct DeviceDescriptor {
 
 impl DeviceDescriptors {
     pub fn new() -> Result<Self> {
-        let context = Context::new()?;
-        let list = context.devices()?;
+        let list = nusb::list_devices()
+            .wait()
+            .map_err(RtlsdrError::from_usb)?
+            .collect();
         Ok(Self { list })
     }
 
@@ -49,41 +54,23 @@ impl DeviceDescriptors {
     pub fn iter(&self) -> impl Iterator<Item = DeviceDescriptor> + '_ {
         self.list
             .iter()
-            .filter_map(|device| {
-                let desc = device.device_descriptor().ok()?;
-                device::is_known_device(desc.vendor_id(), desc.product_id()).then_some(device)
-            })
+            .filter(|device| device::is_known_device(device.vendor_id(), device.product_id()))
             .enumerate()
-            .filter_map(|(index, device)| {
-                let desc = device.device_descriptor().ok()?;
-                match device.open() {
-                    Ok(handle) => {
-                        let manufacturer = read_string(&handle, desc.manufacturer_string_index());
-                        let product = read_string(&handle, desc.product_string_index());
-                        let serial = read_string(&handle, desc.serial_number_string_index());
+            .map(|(index, device)| {
+                let manufacturer = device.manufacturer_string().unwrap_or_default().to_string();
+                let product = device.product_string().unwrap_or_default().to_string();
+                let serial = device.serial_number().unwrap_or_default().to_string();
 
-                        Some(DeviceDescriptor {
-                            index,
-                            vendor_id: desc.vendor_id(),
-                            product_id: desc.product_id(),
-                            manufacturer,
-                            product,
-                            serial,
-                        })
-                    }
-                    Err(e) => {
-                        log::warn!("Could not open device at index {}: {}", index, e);
-                        None
-                    }
+                DeviceDescriptor {
+                    index,
+                    vendor_id: device.vendor_id(),
+                    product_id: device.product_id(),
+                    manufacturer,
+                    product,
+                    serial,
                 }
             })
     }
-}
-
-fn read_string<T: UsbContext>(handle: &DeviceHandle<T>, index: Option<u8>) -> String {
-    index
-        .and_then(|i| handle.read_string_descriptor_ascii(i).ok())
-        .unwrap_or_default()
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -153,6 +140,26 @@ impl RtlSdr {
     pub fn read_sync(&self, buf: &mut [u8]) -> Result<usize> {
         self.sdr.read_sync(buf)
     }
+
+    /// Continuously reads IQ samples and invokes `callback` on the calling thread.
+    ///
+    /// This method blocks until `cancel` is triggered or a transfer fails. Passing
+    /// zero for `buf_num` or `buf_len` selects the corresponding crate default;
+    /// nonzero buffer lengths must be multiples of 512 bytes. A `CancelHandle` is
+    /// one-shot and cannot be reused for a later streaming session.
+    pub fn read_async<F>(
+        &self,
+        buf_num: usize,
+        buf_len: usize,
+        cancel: &CancelHandle,
+        callback: F,
+    ) -> Result<()>
+    where
+        F: FnMut(&[u8]),
+    {
+        self.sdr.read_async(buf_num, buf_len, cancel, callback)
+    }
+
     pub fn get_center_freq(&self) -> u32 {
         self.sdr.get_center_freq()
     }
@@ -249,5 +256,19 @@ impl RtlSdr {
     /// Get the serial number for a specific device by index
     pub fn get_device_serial(index: usize) -> Result<String> {
         Self::get_device_info(index).map(|info| info.serial)
+    }
+}
+
+#[cfg(test)]
+mod public_api_tests {
+    use super::{CancelHandle, Result, RtlSdr};
+
+    #[allow(dead_code)]
+    fn read_async_accepts_a_borrowed_callback(
+        sdr: &RtlSdr,
+        cancel: &CancelHandle,
+        byte_count: &mut usize,
+    ) -> Result<()> {
+        sdr.read_async(1, 512, cancel, |buf| *byte_count += buf.len())
     }
 }
