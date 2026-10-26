@@ -11,7 +11,7 @@ use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
 use crate::tuners::r82xx::{R82xx, R820T_TUNER_ID, R828D_TUNER_ID, R828D_XTAL_FREQ, R82XX_IF_FREQ};
 use crate::tuners::{NoTuner, Tuner, KNOWN_TUNERS};
-use log::{error, info};
+use log::{error, info, warn};
 use nusb::transfer::{Bulk, In};
 use nusb::Endpoint;
 
@@ -118,10 +118,20 @@ impl RtlSdr {
 
         // Hack to force the Bias T to always be on if we set the IR-Endpoint bit in the EEPROM to 0. Default on EEPROM is 1.
         let mut buf: [u8; EEPROM_SIZE] = [0; EEPROM_SIZE];
-        self.handle.read_eeprom(&mut buf, 0, EEPROM_SIZE)?;
-        self.force_bt = buf[7] & 0x02 == 0;
-        // Hack to force direct sampling mode to always be on if we set the remote-enabled bit in the EEPROM to 1. Default on EEPROM is 0.
-        self.force_ds = buf[7] & 0x01 != 0;
+        // Some sticks do not answer the EEPROM read (the control endpoint stalls). The EEPROM
+        // only carries the two optional overrides below, so leave them off and continue.
+        match self.handle.read_eeprom(&mut buf, 0, EEPROM_SIZE) {
+            Ok(_) => {
+                self.force_bt = buf[7] & 0x02 == 0;
+                // Hack to force direct sampling mode to always be on if we set the remote-enabled bit in the EEPROM to 1. Default on EEPROM is 0.
+                self.force_ds = buf[7] & 0x01 != 0;
+            }
+            Err(e) => {
+                warn!("EEPROM not readable ({e}); bias-tee and direct-sampling overrides off");
+                self.force_bt = false;
+                self.force_ds = false;
+            }
+        }
         // TODO: if(force_ds){tuner_type = TUNER_UNKNOWN}
         info!("Init tuner");
         self.tuner.init(&self.handle)?;
