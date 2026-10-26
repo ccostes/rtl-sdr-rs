@@ -83,6 +83,30 @@ impl Device {
             .write_control(CTRL_OUT, 0, addr, index, data_slice, CTRL_TIMEOUT)
     }
 
+    /// Configure a GPIO as output and set it (equivalent to `rtlsdr_set_bias_tee_gpio` upstream).
+    /// Used for the bias tee (GPIO0) and for the RTL-SDR Blog V4 / V4L input switch (GPIO5).
+    pub fn set_gpio(&self, gpio_pin: u8, on: bool) -> Result<()> {
+        self.set_gpio_output(gpio_pin)?;
+        self.set_gpio_bit(gpio_pin, on)
+    }
+
+    pub fn set_gpio_bit(&self, gpio_pin: u8, val: bool) -> Result<()> {
+        let gpio = 1u16 << gpio_pin;
+        let mut r = self.read_reg(BLOCK_SYS, GPO, 1)?;
+        r = if val { r | gpio } else { r & !gpio };
+        self.write_reg(BLOCK_SYS, GPO, r, 1)?;
+        Ok(())
+    }
+
+    pub fn set_gpio_output(&self, gpio_pin: u8) -> Result<()> {
+        let gpio = 1u16 << gpio_pin;
+        let mut r = self.read_reg(BLOCK_SYS, GPD, 1)?;
+        self.write_reg(BLOCK_SYS, GPD, r & !gpio, 1)?;
+        r = self.read_reg(BLOCK_SYS, GPOE, 1)?;
+        self.write_reg(BLOCK_SYS, GPOE, r | gpio, 1)?;
+        Ok(())
+    }
+
     /// Only supports u8 reads
     pub fn demod_read_reg(&self, page: u16, addr: u16) -> Result<u16> {
         let mut data = [0_u8];

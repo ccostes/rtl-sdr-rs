@@ -94,6 +94,28 @@ pub enum DirectSampleMode {
     OnSwap, // Swap I and Q ADC, allowing to select between two inputs
 }
 
+/// RTL-SDR Blog dongle variants, identified by the USB manufacturer string `RTLSDRBlog`
+/// and the product string. Both have a 28.8 MHz upconverter and switch inputs with GPIO5.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum BlogModel {
+    /// Any other dongle (including the V3).
+    None,
+    /// `Blog V4`: R828D tuner, three inputs (HF / VHF / UHF) and notch filters.
+    V4,
+    /// `Blog V4L` (V4 Lite): R828S tuner, which answers as an R820T; two inputs (HF / UHF).
+    V4L,
+}
+
+impl std::fmt::Display for BlogModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            BlogModel::None => "-",
+            BlogModel::V4 => "V4",
+            BlogModel::V4L => "V4L",
+        })
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Sensor {
     TunerType,
@@ -220,6 +242,10 @@ impl RtlSdr {
     }
     pub fn get_tuner_id(&self) -> Result<&str> {
         self.sdr.get_tuner_id()
+    }
+    /// The RTL-SDR Blog variant detected at init (V4 / V4L), or `BlogModel::None`.
+    pub fn blog_model(&self) -> BlogModel {
+        self.sdr.blog_model()
     }
     pub fn list_sensors(&self) -> Result<Vec<Sensor>> {
         Ok(vec![

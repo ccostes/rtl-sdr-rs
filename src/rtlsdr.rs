@@ -2,10 +2,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{DirectSampleMode, TunerGain};
+use super::{BlogModel, DirectSampleMode, TunerGain};
 use crate::device::{
-    Device, BLOCK_SYS, BLOCK_USB, DEMOD_CTL, DEMOD_CTL_1, EEPROM_SIZE, GPD, GPO, GPOE, USB_EPA_CTL,
-    USB_EPA_MAXPKT, USB_SYSCTL,
+    Device, BLOCK_SYS, BLOCK_USB, DEMOD_CTL, DEMOD_CTL_1, EEPROM_SIZE, USB_EPA_CTL, USB_EPA_MAXPKT,
+    USB_SYSCTL,
 };
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
@@ -43,6 +43,17 @@ pub struct RtlSdr {
     force_bt: bool,
     force_ds: bool,
     fir: [i32; FIR_LEN],
+    blog: BlogModel,
+}
+
+/// Identify the RTL-SDR Blog model from the USB manufacturer and product strings.
+/// Exact match, like `rtlsdr_check_dongle_model` in the rtl-sdr-blog driver.
+pub(crate) fn detect_blog_model(manufact: Option<&str>, product: Option<&str>) -> BlogModel {
+    match (manufact, product) {
+        (Some("RTLSDRBlog"), Some("Blog V4")) => BlogModel::V4,
+        (Some("RTLSDRBlog"), Some("Blog V4L")) => BlogModel::V4L,
+        _ => BlogModel::None,
+    }
 }
 
 impl RtlSdr {
@@ -61,6 +72,7 @@ impl RtlSdr {
             force_bt: false,
             force_ds: false,
             fir: *DEFAULT_FIR,
+            blog: BlogModel::None,
         }
     }
 
@@ -70,14 +82,16 @@ impl RtlSdr {
         self.init_baseband()?;
         self.set_i2c_repeater(true)?;
 
-        let is_blog_v4 = self
+        let blog = self
             .handle
             .usb_strings()
             .map(|(manufact, product, _)| {
-                matches!(manufact.as_deref(), Some("RTLSDRBlog"))
-                    && matches!(product.as_deref(), Some("Blog V4"))
+                detect_blog_model(manufact.as_deref(), product.as_deref())
             })
-            .unwrap_or(false);
+            .unwrap_or(BlogModel::None);
+        if blog != BlogModel::None {
+            info!("RTL-SDR Blog {} detected", blog);
+        }
 
         let tuner_id = match self.search_tuner() {
             Some(tid) => {
@@ -90,16 +104,19 @@ impl RtlSdr {
         };
 
         let tuner: Box<dyn Tuner> = match tuner_id {
-            R820T_TUNER_ID => Box::new(R82xx::new_r820t()),
-            R828D_TUNER_ID => Box::new(R82xx::new_r828d(is_blog_v4)),
+            R820T_TUNER_ID => Box::new(R82xx::new_r820t(blog)),
+            R828D_TUNER_ID => Box::new(R82xx::new_r828d(blog)),
             _ => panic!("Unable to find recognized tuner"),
         };
 
-        self.tuner_xtal = match (tuner_id, is_blog_v4) {
-            (R828D_TUNER_ID, false) => R828D_XTAL_FREQ, // If NOT an RTL-SDR Blog V4, set typical R828D 16 MHz freq. Otherwise, keep at 28.8 MHz.
+        self.tuner_xtal = match (tuner_id, blog) {
+            // The RTL-SDR Blog V4 keeps the 28.8 MHz reference on its R828D; any other R828D uses the typical 16 MHz.
+            (R828D_TUNER_ID, BlogModel::V4) => self.xtal,
+            (R828D_TUNER_ID, _) => R828D_XTAL_FREQ,
             _ => self.xtal,
         };
 
+        self.blog = blog;
         self.tuner = tuner;
         self.tuner.set_xtal_freq(self.get_tuner_xtal_freq())?;
 
@@ -507,29 +524,11 @@ impl RtlSdr {
         if self.force_bt {
             on = true;
         }
-        self.set_gpio_output(gpio_pin)?;
-        self.set_gpio_bit(gpio_pin, on)
+        self.handle.set_gpio(gpio_pin, on)
     }
 
-    fn set_gpio_bit(&self, mut gpio: u8, val: bool) -> Result<()> {
-        gpio = 1 << gpio;
-        let mut r = self.handle.read_reg(BLOCK_SYS, GPO, 1)?;
-        r = if val {
-            r | gpio as u16
-        } else {
-            r & !gpio as u16
-        };
-        self.handle.write_reg(BLOCK_SYS, GPO, r, 1)?;
-        Ok(())
-    }
-
-    fn set_gpio_output(&self, mut gpio: u8) -> Result<()> {
-        gpio = 1 << gpio;
-        let mut r = self.handle.read_reg(BLOCK_SYS, GPD, 1)?;
-        self.handle.write_reg(BLOCK_SYS, GPD, r & !gpio as u16, 1)?;
-        r = self.handle.read_reg(BLOCK_SYS, GPOE, 1)?;
-        self.handle.write_reg(BLOCK_SYS, GPOE, r | gpio as u16, 1)?;
-        Ok(())
+    pub fn blog_model(&self) -> BlogModel {
+        self.blog
     }
 
     fn set_i2c_repeater(&self, enable: bool) -> Result<()> {
@@ -605,5 +604,37 @@ impl RtlSdr {
 
     pub fn get_tuner_id(&self) -> Result<&str> {
         Ok(self.tuner.get_info()?.id)
+    }
+}
+
+#[cfg(test)]
+mod blog_model_tests {
+    use super::detect_blog_model as blog_model;
+    use crate::BlogModel;
+
+    #[test]
+    fn detects_v4_and_v4l_by_exact_usb_strings() {
+        assert_eq!(
+            blog_model(Some("RTLSDRBlog"), Some("Blog V4")),
+            BlogModel::V4
+        );
+        assert_eq!(
+            blog_model(Some("RTLSDRBlog"), Some("Blog V4L")),
+            BlogModel::V4L
+        );
+    }
+
+    #[test]
+    fn anything_else_is_not_a_blog_model() {
+        assert_eq!(blog_model(None, Some("Blog V4L")), BlogModel::None);
+        assert_eq!(blog_model(Some("RTLSDRBlog"), None), BlogModel::None);
+        assert_eq!(
+            blog_model(Some("Realtek"), Some("RTL2838UHIDIR")),
+            BlogModel::None
+        );
+        assert_eq!(
+            blog_model(Some("RTLSDRBlog"), Some("Blog V4 ")),
+            BlogModel::None
+        );
     }
 }
