@@ -6,6 +6,7 @@ use super::{Tuner, TunerGain, TunerInfo};
 use crate::device::Device;
 use crate::error::Result;
 use crate::error::RtlsdrError::RtlsdrErr;
+use crate::BlogModel;
 use log::info;
 
 const R820T_I2C_ADDR: u16 = 0x34;
@@ -27,6 +28,8 @@ const BLOG_V4_NOTCH_OFF_BAND3_MAX: u32 = 242_000_000;
 const BLOG_V4_HF_MAX: u32 = 28_800_000;
 const BLOG_V4_VHF_MIN: u32 = 28_800_001;
 const BLOG_V4_VHF_MAX: u32 = 250_000_000;
+/// RTL2832U GPIO that selects the upconverter path on the V4 / V4L (upstream: `rtlsdr_set_bias_tee_gpio(dev, 5, ...)`).
+const BLOG_UPCONVERTER_GPIO: u8 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum R82xxChip {
@@ -307,6 +310,60 @@ enum TunerInput {
     AirIn,
 }
 
+/// Input of the RTL-SDR Blog V4L: HF (through the upconverter, cable 1) up to 28.8 MHz,
+/// air in above that. Unlike the V4 there is no separate VHF input.
+fn blog_v4l_input(freq: u32) -> TunerInput {
+    if freq <= BLOG_V4_HF_MAX {
+        TunerInput::Cable1
+    } else {
+        TunerInput::AirIn
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct V4lInputRegs {
+    /// Register 0x05, bit 0x40.
+    cable_1_in: u8,
+    /// GPIO5: low for HF (upconverter path), high otherwise.
+    gpio5_on: bool,
+    /// Register 0x05, bit 0x20; 0 enables air in.
+    air_in: u8,
+}
+
+/// Same values as the V4L branch of the rtl-sdr-blog driver:
+/// `cable_1_in = HF ? 0x40 : 0; GPIO5 = !cable_1_in; air_in = UHF ? 0x00 : 0x20`.
+fn v4l_input_regs(input: TunerInput) -> V4lInputRegs {
+    let hf = matches!(input, TunerInput::Cable1);
+    V4lInputRegs {
+        cable_1_in: if hf { 0x40 } else { 0x00 },
+        gpio5_on: !hf,
+        air_in: if hf { 0x20 } else { 0x00 },
+    }
+}
+
+/// The V4 (R828D) and the V4L receive anything below 28.8 MHz through an upconverter that shifts it up by 28.8 MHz.
+fn upconverted_freq(blog: BlogModel, chip: R82xxChip, freq: u32) -> u32 {
+    let has_upconverter = match blog {
+        BlogModel::V4 => chip == R82xxChip::R828D,
+        BlogModel::V4L => true,
+        BlogModel::None => false,
+    };
+    if has_upconverter && freq < BLOG_V4_UPCONVERT_FREQ {
+        freq + BLOG_V4_UPCONVERT_FREQ
+    } else {
+        freq
+    }
+}
+
+/// VCO power reference for the PLL: 1 for the R828D and for the V4L (R828S), 2 for the R820T (upstream `r82xx_set_pll`).
+fn vco_power_ref(chip: R82xxChip, blog: BlogModel) -> u8 {
+    if chip == R82xxChip::R828D || blog == BlogModel::V4L {
+        1
+    } else {
+        2
+    }
+}
+
 #[derive(Debug)]
 pub struct R82xx {
     pub info: TunerInfo,
@@ -320,7 +377,7 @@ pub struct R82xx {
     init_done: bool,
     chip: R82xxChip,
     i2c_addr: u16,
-    is_blog_v4: bool,
+    blog: BlogModel,
     last_input_sel: Option<TunerInput>,
 }
 
@@ -344,15 +401,15 @@ pub const R828D_TUNER_INFO: TunerInfo = TunerInfo {
 };
 
 impl R82xx {
-    pub fn new_r820t() -> R82xx {
-        R82xx::new(R820T_TUNER_INFO, R82xxChip::R820T, false)
+    pub fn new_r820t(blog: BlogModel) -> R82xx {
+        R82xx::new(R820T_TUNER_INFO, R82xxChip::R820T, blog)
     }
 
-    pub fn new_r828d(is_blog_v4: bool) -> R82xx {
-        R82xx::new(R828D_TUNER_INFO, R82xxChip::R828D, is_blog_v4)
+    pub fn new_r828d(blog: BlogModel) -> R82xx {
+        R82xx::new(R828D_TUNER_INFO, R82xxChip::R828D, blog)
     }
 
-    fn new(info: TunerInfo, chip: R82xxChip, is_blog_v4: bool) -> R82xx {
+    fn new(info: TunerInfo, chip: R82xxChip, blog: BlogModel) -> R82xx {
         R82xx {
             info,
             regs: REG_INIT,
@@ -368,9 +425,16 @@ impl R82xx {
                 R82xxChip::R820T => R820T_I2C_ADDR,
                 R82xxChip::R828D => R828D_I2C_ADDR,
             },
-            is_blog_v4,
+            blog,
             last_input_sel: None,
         }
+    }
+
+    /// Bypass the tracking filter at and below 28.8 MHz (through the upconverter), as in the
+    /// rtl-sdr-blog commit "tracking filter bypass in HF mode". Written on every HF tune.
+    fn bypass_tracking_filter_for_hf(&mut self, handle: &Device) -> Result<()> {
+        self.write_reg_mask(handle, 0x1a, 0x40, 0xc3)?;
+        self.write_regs(handle, 0x1b, &[0x00])
     }
 }
 
@@ -487,22 +551,15 @@ impl Tuner for R82xx {
     fn set_freq(&mut self, handle: &Device, freq: u32) -> Result<()> {
         info!("set_freq - freq: {}", freq);
 
-        let upconverted_freq = if self.is_blog_v4
-            && matches!(self.chip, R82xxChip::R828D)
-            && freq < BLOG_V4_UPCONVERT_FREQ
-        {
-            freq + BLOG_V4_UPCONVERT_FREQ
-        } else {
-            freq
-        };
+        let upconverted_freq = upconverted_freq(self.blog, self.chip, freq);
 
         let lo_freq = upconverted_freq + self.int_freq;
         info!("set_freq - lo_freq: {}", lo_freq);
         self.set_mux(handle, lo_freq)?;
         self.set_pll(handle, lo_freq)?;
 
-        if matches!(self.chip, R82xxChip::R828D) {
-            if self.is_blog_v4 {
+        match (self.blog, self.chip) {
+            (BlogModel::V4, R82xxChip::R828D) => {
                 // determine if notch filters should be on or off notches are turned OFF when tuned within the notch band and ON when tuned outside the notch band.
                 let open_d = match freq {
                     0..=BLOG_V4_NOTCH_OFF_BAND1_MAX
@@ -519,6 +576,10 @@ impl Tuner for R82xx {
                     _ => TunerInput::AirIn,
                 };
 
+                if input == TunerInput::Cable2 {
+                    self.bypass_tracking_filter_for_hf(handle)?;
+                }
+
                 // switch between tuner inputs on the RTL-SDR Blog V4
                 if self.last_input_sel != Some(input) {
                     let (cable_2_in, cable_1_in, air_in) = match input {
@@ -531,8 +592,7 @@ impl Tuner for R82xx {
                     self.write_reg_mask(handle, 0x06, cable_2_in, 0x08)?;
 
                     // Control upconverter GPIO switch on newer batches
-                    // TODO: tuner needs access to rtl_dev struct for this
-                    // rc = rtlsdr_set_bias_tee_gpio(priv->rtl_dev, 5, !cable_2_in);
+                    handle.set_gpio(BLOG_UPCONVERTER_GPIO, cable_2_in == 0)?;
 
                     // activate cable 1 (VHF input)
                     self.write_reg_mask(handle, 0x05, cable_1_in, 0x40)?;
@@ -542,7 +602,31 @@ impl Tuner for R82xx {
 
                     self.last_input_sel = Some(input);
                 }
-            } else {
+            }
+            (BlogModel::V4L, _) => {
+                let input = blog_v4l_input(freq);
+
+                if input == TunerInput::Cable1 {
+                    self.bypass_tracking_filter_for_hf(handle)?;
+                }
+
+                // switch between tuner inputs on the RTL-SDR Blog V4L
+                if self.last_input_sel != Some(input) {
+                    let regs = v4l_input_regs(input);
+
+                    // Control upconverter GPIO switch
+                    handle.set_gpio(BLOG_UPCONVERTER_GPIO, regs.gpio5_on)?;
+
+                    // activate cable 1 (HF input)
+                    self.write_reg_mask(handle, 0x05, regs.cable_1_in, 0x40)?;
+
+                    // activate air_in (UHF input)
+                    self.write_reg_mask(handle, 0x05, regs.air_in, 0x20)?;
+
+                    self.last_input_sel = Some(input);
+                }
+            }
+            (_, R82xxChip::R828D) => {
                 let input = match freq {
                     0..=R828D_INPUT_SWITCH_FREQ => TunerInput::Cable1,
                     _ => TunerInput::AirIn,
@@ -557,6 +641,7 @@ impl Tuner for R82xx {
                     self.last_input_sel = Some(input);
                 }
             }
+            (_, R82xxChip::R820T) => {}
         }
 
         Ok(())
@@ -741,10 +826,7 @@ impl R82xx {
 
         let mut data: [u8; 5] = [0; 5];
         self.read_reg(handle, 0x00, &mut data, 5)?;
-        let vco_power_ref = match self.chip {
-            R82xxChip::R828D => 1,
-            R82xxChip::R820T => 2,
-        };
+        let vco_power_ref = vco_power_ref(self.chip, self.blog);
         let vco_fine_tune = (data[4] & 0x30) >> 4;
         if vco_fine_tune > vco_power_ref {
             div_num -= 1;
@@ -1186,4 +1268,71 @@ fn bit_reverse(byte: u8) -> u8 {
         0x0, 0x8, 0x4, 0xc, 0x2, 0xa, 0x6, 0xe, 0x1, 0x9, 0x5, 0xd, 0x3, 0xb, 0x7, 0xf,
     ];
     (LUT[(byte & 0xf) as usize] << 4) | LUT[(byte >> 4) as usize]
+}
+
+#[cfg(test)]
+mod blog_v4l_tests {
+    use super::*;
+    use crate::BlogModel;
+
+    #[test]
+    fn v4l_input_is_cable1_up_to_28_8_mhz_and_air_above() {
+        assert_eq!(blog_v4l_input(7_000_000), TunerInput::Cable1);
+        assert_eq!(blog_v4l_input(28_800_000), TunerInput::Cable1);
+        assert_eq!(blog_v4l_input(28_800_001), TunerInput::AirIn);
+        assert_eq!(blog_v4l_input(352_603_125), TunerInput::AirIn);
+    }
+
+    #[test]
+    fn v4l_input_regs_match_upstream_driver() {
+        // upstream: cable_1_in = HF ? 0x40 : 0; GPIO5 = !cable_1_in; air_in = UHF ? 0x00 : 0x20
+        assert_eq!(
+            v4l_input_regs(TunerInput::Cable1),
+            V4lInputRegs {
+                cable_1_in: 0x40,
+                gpio5_on: false,
+                air_in: 0x20
+            }
+        );
+        assert_eq!(
+            v4l_input_regs(TunerInput::AirIn),
+            V4lInputRegs {
+                cable_1_in: 0x00,
+                gpio5_on: true,
+                air_in: 0x00
+            }
+        );
+    }
+
+    #[test]
+    fn upconvert_applies_below_28_8_mhz_on_v4_and_v4l_only() {
+        assert_eq!(
+            upconverted_freq(BlogModel::V4L, R82xxChip::R820T, 7_000_000),
+            35_800_000
+        );
+        assert_eq!(
+            upconverted_freq(BlogModel::V4, R82xxChip::R828D, 7_000_000),
+            35_800_000
+        );
+        assert_eq!(
+            upconverted_freq(BlogModel::V4L, R82xxChip::R820T, 352_603_125),
+            352_603_125
+        );
+        assert_eq!(
+            upconverted_freq(BlogModel::None, R82xxChip::R820T, 7_000_000),
+            7_000_000
+        );
+        assert_eq!(
+            upconverted_freq(BlogModel::None, R82xxChip::R828D, 7_000_000),
+            7_000_000
+        );
+    }
+
+    #[test]
+    fn vco_power_ref_is_1_for_r828d_and_v4l() {
+        assert_eq!(vco_power_ref(R82xxChip::R828D, BlogModel::None), 1);
+        assert_eq!(vco_power_ref(R82xxChip::R828D, BlogModel::V4), 1);
+        assert_eq!(vco_power_ref(R82xxChip::R820T, BlogModel::V4L), 1);
+        assert_eq!(vco_power_ref(R82xxChip::R820T, BlogModel::None), 2);
+    }
 }
